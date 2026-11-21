@@ -1,0 +1,91 @@
+# PharmacyApp
+
+Finds the nearest pharmacies for a user's coordinates using the Google Places API.
+
+Elixir 1.20.5-otp-29 / Erlang/OTP 29, managed with [asdf](https://asdf-vm.com). Layered design: Phoenix transport → service orchestration → pure domain logic, with a vendored generated Google Places client (`vendor/googly_places`).
+
+## Prerequisites
+
+- asdf with the `erlang` and `elixir` plugins. Versions are pinned in `.tool-versions`:
+
+  ```sh
+  asdf install          # installs erlang 29.1.2 and elixir 1.20.5-otp-29
+  ```
+
+- Make sure `~/.asdf/shims` is on your `PATH` (fish: `fish_add_path ~/.asdf/shims`, one-time and persistent).
+
+- A Google Maps API key with the **Places API** enabled (Places API (New) endpoints are used).
+
+## Setup
+
+```sh
+mix deps.get
+```
+
+## Running the server
+
+```sh
+GOOGLE_MAPS_API_KEY=your-key-here mix phx.server
+```
+
+The app fails to boot without `GOOGLE_MAPS_API_KEY` (checked at startup in `config/runtime.exs`).
+
+The server listens on `http://localhost:4000`. To run it interactively with an IEx shell attached:
+
+```sh
+GOOGLE_MAPS_API_KEY=your-key-here iex -S mix phx.server
+```
+
+## Using the API
+
+```sh
+curl 'http://localhost:4000/api/pharmacies?lat=52.52&lng=13.405&radius_m=2000'
+```
+
+Query parameters:
+
+| Param     | Required | Meaning                                        |
+|-----------|----------|------------------------------------------------|
+| `lat`     | yes      | User latitude, -90 to 90                       |
+| `lng`     | yes      | User longitude, -180 to 180                    |
+| `radius_m`| yes      | Search radius in meters, clamped to 1–50 000   |
+
+Responses:
+
+- `200` — JSON list of pharmacies: `id`, `display_name`, `address`, `lat`, `lng`, `distance_m` (computed locally via haversine), `open_now` (always `null`; the Places search response has no open-now field).
+- `422` — invalid parameters; body includes an issue list.
+- `4xx` / `502` — upstream (Google) error, mirrored or mapped by the controller.
+
+Results are cached for 60 s on a ~100 m location grid.
+
+## Tests
+
+```sh
+mix test
+```
+
+Tests are fully offline: the service layer uses an injected fake Places client, transport tests dispatch through the endpoint without opening a port. A real API key is not needed.
+
+## Project layout
+
+```
+lib/pharmacy_app/
+  pharmacies/pharmacy.ex         # pure domain: validation, haversine, Google model → app struct
+  pharmacies/places_adapter.ex   # only module that touches Googly.Places.* (API key, error translation)
+  pharmacies/service.ex          # orchestration: validate → cache → client → map/filter/sort
+  pharmacies/cache.ex            # ETS + GenServer TTL cache (60 s, ~100 m grid)
+  application.ex                 # supervisor: Cache + Endpoint
+lib/pharmacy_app_web/
+  endpoint.ex, router.ex         # GET /api/pharmacies
+  controllers/pharmacies_controller.ex
+vendor/googly_places/            # generated Google Places client (do not edit)
+```
+
+## Regenerating the Places client
+
+The client is generated from Google's discovery document with [googly](https://github.com/Rabbet/googly). To regenerate after a Google API update:
+
+```sh
+cd ../googly && mix googly.generate Places   # manifest entry: config/apis.json
+cp -r clients/googly_places ../pharmacy-app/vendor/
+```
