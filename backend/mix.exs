@@ -27,7 +27,9 @@ defmodule PharmacyApp.MixProject do
       {:googly_places, path: "vendor/googly_places"},
       {:phoenix, "~> 1.8"},
       {:bandit, "~> 1.6"},
-      {:jason, "~> 1.4"}
+      {:jason, "~> 1.4"},
+      {:phoenix_html, "~> 4.0"},
+      {:phoenix_live_view, "~> 1.0"}
     ]
   end
 end

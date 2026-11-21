@@ -58,6 +58,10 @@ Responses:
 
 Results are cached for 60 s on a ~100 m location grid.
 
+## Web UI
+
+A server-rendered page at `GET /` (HTML, no JS build step — script and style are inline in the HEEx template) shows nearby pharmacies with distance, open-now status, and opening hours. There is no form: on page load the browser's Geolocation API detects your position and the page reloads with `?lat=..&lng=..` in the URL so Phoenix renders the results server-side. While locating, a "Detecting your location…" state is shown; if permission is denied, the fix fails, or the request times out, an error message with a **Retry** button appears. Geolocation requires a secure context: if the page is opened over plain HTTP without geolocation support, it asks you to retry over HTTPS — or to pass coordinates manually as `?lat=&lng=` (with optional `radius_m`), which remains a supported fallback. Radius presets (500 m / 1 km / 2 km / 5 km) appear as links next to the results; the default is 1000 m. Invalid input shows inline errors, and upstream (Google) failures show a banner, mirroring the JSON API's status codes.
+
 ## Tests
 
 ```sh

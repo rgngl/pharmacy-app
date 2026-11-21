@@ -1,0 +1,260 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Pharmacy Finder</title>
+    <style>
+      :root { color-scheme: light dark; }
+      * { box-sizing: border-box; }
+      body {
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
+          "Helvetica Neue", Arial, sans-serif;
+        margin: 0 auto;
+        max-width: 640px;
+        padding: 1.5rem 1rem 3rem;
+        line-height: 1.5;
+      }
+      h1 { font-size: 1.4rem; margin: 0 0 1rem; }
+      button {
+        padding: 0.4rem 0.9rem;
+        border: none;
+        border-radius: 6px;
+        font: inherit;
+        cursor: pointer;
+        background: #0b62d6;
+        color: #fff;
+      }
+      .status {
+        display: flex;
+        align-items: center;
+        gap: 0.6rem;
+        padding: 0.9rem 1rem;
+        border: 1px solid #ccc;
+        border-radius: 8px;
+        color: #444;
+        margin-bottom: 1rem;
+      }
+      .status.error {
+        background: #fdecea;
+        color: #8a1c0f;
+        border-color: #e5a89f;
+        display: block;
+      }
+      .spinner {
+        width: 1rem;
+        height: 1rem;
+        flex: 0 0 1rem;
+        border: 2px solid #bbb;
+        border-top-color: #0b62d6;
+        border-radius: 50%;
+        animation: spin 0.8s linear infinite;
+      }
+      @keyframes spin { to { transform: rotate(360deg); } }
+      .status.error .retry { margin-top: 0.5rem; }
+      .radius-links {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.5rem;
+        align-items: center;
+        margin: 1rem 0;
+        font-size: 0.85rem;
+      }
+      .radius-links a {
+        padding: 0.2rem 0.7rem;
+        border: 1px solid #ccc;
+        border-radius: 999px;
+        text-decoration: none;
+        color: #0b62d6;
+      }
+      .radius-links a.active {
+        background: #0b62d6;
+        border-color: #0b62d6;
+        color: #fff;
+      }
+      .banner {
+        background: #fdecea;
+        color: #8a1c0f;
+        border: 1px solid #e5a89f;
+        padding: 0.75rem 1rem;
+        border-radius: 8px;
+        margin: 1rem 0;
+      }
+      .errors {
+        background: #fdecea;
+        color: #8a1c0f;
+        border: 1px solid #e5a89f;
+        padding: 0.5rem 1.5rem;
+        border-radius: 8px;
+        margin: 1rem 0;
+      }
+      table { width: 100%; border-collapse: collapse; margin-top: 1rem; }
+      th, td { text-align: left; padding: 0.5rem; border-bottom: 1px solid #ddd; vertical-align: top; }
+      th { font-size: 0.8rem; text-transform: uppercase; letter-spacing: 0.03em; color: #555; }
+      .hours { margin: 0.25rem 0 0; padding-left: 1rem; font-size: 0.8rem; color: #555; }
+      .badge {
+        display: inline-block;
+        font-size: 0.75rem;
+        font-weight: 600;
+        padding: 0.1rem 0.5rem;
+        border-radius: 999px;
+        background: #e2f5e5;
+        color: #14571f;
+      }
+      .badge.closed { background: #ececec; color: #444; }
+      .empty { margin-top: 1rem; color: #555; }
+      .hidden { display: none; }
+    </style>
+  </head>
+  <body>
+    <h1>Find a pharmacy</h1>
+
+    <div id="geo-status" class="status hidden">
+      <span class="spinner hidden" aria-hidden="true"></span>
+      <span id="geo-status-text">Detecting your location…</span>
+      <button type="button" class="retry hidden" id="geo-retry">Retry</button>
+    </div>
+
+    <%= if assigns[:banner] do %>
+      <div class="banner" role="alert">{@banner}</div>
+    <% end %>
+
+    <%= if @errors != [] do %>
+      <ul class="errors" role="alert">
+        <%= for issue <- @errors do %>
+          <li>{issue}</li>
+        <% end %>
+      </ul>
+    <% end %>
+
+    <%= if assigns[:no_params] do %>
+      <p class="empty">Allow location access in your browser to find nearby pharmacies.</p>
+    <% else %>
+      <%= if is_binary(@submitted["lat"]) and @submitted["lat"] != "" and
+            is_binary(@submitted["lng"]) and @submitted["lng"] != "" do %>
+        <div class="radius-links">
+          <span>Radius:</span>
+          <%= for {label, m} <- [{"500 m", 500}, {"1 km", 1000}, {"2 km", 2000}, {"5 km", 5000}] do %>
+            <.link
+              class={if PharmacyAppWeb.PageHTML.active_radius?(@submitted, m), do: "active", else: nil}
+              href={"/?" <>
+                URI.encode_query(%{
+                  "lat" => @submitted["lat"] || "",
+                  "lng" => @submitted["lng"] || "",
+                  "radius_m" => m
+                })}
+              method="get"
+            >{label}</.link>
+          <% end %>
+        </div>
+      <% end %>
+      <%= if @searched do %>
+        <%= if @pharmacies == [] do %>
+          <p class="empty">No pharmacies found within {PharmacyAppWeb.PageHTML.radius_text(@submitted)}.</p>
+        <% else %>
+          <table>
+            <thead>
+              <tr>
+                <th>Name</th><th>Address</th><th>Distance</th><th>Status</th>
+              </tr>
+            </thead>
+            <tbody>
+              <%= for p <- @pharmacies do %>
+                <tr>
+                  <td>{p.display_name}</td>
+                  <td>{p.address}</td>
+                  <td>{PharmacyAppWeb.PageHTML.format_distance(p.distance_m)}</td>
+                  <td>
+                    <%= if not is_nil(p.open_now) do %>
+                      <span class={if p.open_now, do: "badge", else: "badge closed"}>
+                        {if p.open_now, do: "Open now", else: "Closed"}
+                      </span>
+                      <%= if p.opening_hours do %>
+                        <ul class="hours">
+                          <%= for h <- p.opening_hours do %>
+                            <li>{h}</li>
+                          <% end %>
+                        </ul>
+                      <% end %>
+                    <% end %>
+                  </td>
+                </tr>
+              <% end %>
+            </tbody>
+          </table>
+        <% end %>
+      <% end %>
+    <% end %>
+
+    <script>
+      (function () {
+        var status = document.getElementById("geo-status");
+        var spinner = status.querySelector(".spinner");
+        var statusText = document.getElementById("geo-status-text");
+        var retryBtn = document.getElementById("geo-retry");
+
+        function params() {
+          return new URLSearchParams(window.location.search);
+        }
+
+        function hasCoords() {
+          var p = params();
+          return p.get("lat") !== null && p.get("lat") !== "" &&
+                 p.get("lng") !== null && p.get("lng") !== "";
+        }
+
+        function showLoading() {
+          status.classList.remove("hidden", "error");
+          spinner.classList.remove("hidden");
+          retryBtn.classList.add("hidden");
+          statusText.textContent = "Detecting your location…";
+        }
+
+        function showError(message) {
+          status.classList.add("error");
+          status.classList.remove("hidden");
+          spinner.classList.add("hidden");
+          retryBtn.classList.remove("hidden");
+          statusText.textContent = message;
+        }
+
+        function navigate(lat, lng) {
+          var next = new URLSearchParams(window.location.search);
+          next.set("lat", lat);
+          next.set("lng", lng);
+          window.location.replace(
+            window.location.pathname + "?" + next.toString()
+          );
+        }
+
+        function locate() {
+          if (!navigator.geolocation) {
+            showError("Location detection requires HTTPS. Open this page over HTTPS, or pass ?lat=&lng= in the URL.");
+            return;
+          }
+          showLoading();
+          navigator.geolocation.getCurrentPosition(
+            function (pos) {
+              navigate(pos.coords.latitude.toFixed(6), pos.coords.longitude.toFixed(6));
+            },
+            function (err) {
+              var messages = {
+                1: "Location permission denied. Allow location access and retry.",
+                2: "Location unavailable.",
+                3: "Location request timed out."
+              };
+              showError(messages[err.code] || "Location unavailable.");
+            },
+            { enableHighAccuracy: true, timeout: 10000, maximumAge: 60000 }
+          );
+        }
+
+        retryBtn.addEventListener("click", locate);
+
+        if (!hasCoords()) {
+          locate();
+        }
+      })();
+    </script>
+  </body>
+</html>

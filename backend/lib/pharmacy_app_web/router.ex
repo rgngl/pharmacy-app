@@ -5,9 +5,19 @@ defmodule PharmacyAppWeb.Router do
     plug :accepts, ["json"]
   end
 
+  pipeline :browser do
+    plug :accepts, ["html"]
+  end
+
   scope "/", PharmacyAppWeb do
     pipe_through :api
 
     get "/api/pharmacies", PharmaciesController, :index
+  end
+
+  scope "/", PharmacyAppWeb do
+    pipe_through :browser
+
+    get "/", PageController, :home
   end
 end
