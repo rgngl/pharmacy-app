@@ -31,8 +31,6 @@ GOOGLE_MAPS_API_KEY=your-key-here mix phx.server
 The app fails to boot without `GOOGLE_MAPS_API_KEY` (checked at startup in `config/runtime.exs`).
 
 The server listens on `http://localhost:4000`. To run it interactively with an IEx shell attached:
-Finds the nearest pharmacies for a user's coordinates via the Google Places API.
-Monorepo: Elixir/Phoenix backend + iOS app.
 
 ```sh
 GOOGLE_MAPS_API_KEY=your-key-here iex -S mix phx.server
@@ -42,8 +40,6 @@ GOOGLE_MAPS_API_KEY=your-key-here iex -S mix phx.server
 
 ```sh
 curl 'http://localhost:4000/api/pharmacies?lat=52.52&lng=13.405&radius_m=2000'
-backend/   Elixir/Phoenix API (see backend/README.md)
-ios/       iOS app (Xcode project)
 ```
 
 Query parameters:
@@ -63,12 +59,8 @@ Responses:
 Results are cached for 60 s on a ~100 m location grid.
 
 ## Tests
-## Backend
 
 ```sh
-cd backend
-mix deps.get
-GOOGLE_MAPS_API_KEY=your-key-here mix phx.server   # http://localhost:4000
 mix test
 ```
 
@@ -90,13 +82,10 @@ vendor/googly_places/            # generated Google Places client (do not edit)
 ```
 
 ## Regenerating the Places client
-API: `GET /api/pharmacies?lat=…&lng=…&radius_m=…` — see [backend/README.md](backend/README.md) for full setup, parameters, and project layout.
 
 The client is generated from Google's discovery document with [googly](https://github.com/Rabbet/googly). To regenerate after a Google API update:
-## iOS
 
 ```sh
 cd ../googly && mix googly.generate Places   # manifest entry: config/apis.json
 cp -r clients/googly_places ../pharmacy-app/vendor/
 ```
-Open `ios/` in Xcode (project to be added).
