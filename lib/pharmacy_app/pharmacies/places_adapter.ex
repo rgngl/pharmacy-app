@@ -11,11 +11,15 @@ defmodule PharmacyApp.Pharmacies.PlacesAdapter do
   * `{:error, {:upstream, status, message}}` — Google rejected the request
   * `{:error, :upstream_unavailable}` — network/transport failure
   """
-  def search_nearby(lat, lng, radius_m, _opts \\ []) do
+  def search_nearby(lat, lng, radius_m, opts \\ []) do
     api_key = Application.fetch_env!(:pharmacy_app, :google_api_key)
 
     body = %Googly.Places.Model.GoogleMapsPlacesV1SearchNearbyRequest{
       included_primary_types: ["pharmacy"],
+      # Localizes display_name/formattedAddress and formats
+      # currentOpeningHours.weekdayDescriptions in the client's locale.
+      # nil is dropped by the encoder, leaving Google's default (en-US).
+      language_code: Keyword.get(opts, :language_code),
       # RankPreference enum is DISTANCE | POPULARITY; DISTANCE = nearest-first
       rank_preference: "DISTANCE",
       max_result_count: 20,

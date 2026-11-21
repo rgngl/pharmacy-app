@@ -7,12 +7,47 @@ defmodule PharmacyAppWeb.PharmaciesControllerTest do
 
   setup do
     on_exit(fn -> Application.delete_env(:pharmacy_app, :service_opts) end)
+    # Cache is a global ETS table with a 60s TTL; entries would leak across
+    # tests and satisfy later requests without hitting the client.
+    if :ets.whereis(:pharmacy_cache) != :undefined, do: :ets.delete_all_objects(:pharmacy_cache)
     :ok
   end
 
   defp set_client(result) do
     Application.put_env(:pharmacy_app, :service_opts, client: PharmacyApp.TestClient)
-    Application.put_env(:pharmacy_app, :test_client_fn, fn _lat, _lng, _r -> result end)
+    Application.put_env(:pharmacy_app, :test_client_fn, fn _lat, _lng, _r, _opts -> result end)
+  end
+
+  defp set_client_capture(parent, result) do
+    Application.put_env(:pharmacy_app, :service_opts, client: PharmacyApp.TestClient)
+
+    Application.put_env(:pharmacy_app, :test_client_fn, fn _lat, _lng, _r, opts ->
+      send(parent, {:client_opts, opts})
+      result
+    end)
+  end
+
+  test "forwards client Accept-Language to the upstream" do
+    set_client_capture(self(), {:ok, []})
+
+    conn =
+      build_conn()
+      |> Plug.Conn.put_req_header("accept-language", "de-DE,de;q=0.9,en;q=0.8")
+      |> get("/api/pharmacies", lat: "52.52", lng: "13.405", radius_m: "1000")
+
+    assert conn.status == 200
+    assert_received {:client_opts, opts}
+    assert opts[:language_code] == "de-DE"
+  end
+
+  test "missing Accept-Language sends no language code" do
+    set_client_capture(self(), {:ok, []})
+
+    conn = get(build_conn(), "/api/pharmacies", lat: "52.52", lng: "13.405", radius_m: "1000")
+
+    assert conn.status == 200
+    assert_received {:client_opts, opts}
+    assert opts[:language_code] == nil
   end
 
   test "renders 200 with a JSON list of pharmacy maps" do

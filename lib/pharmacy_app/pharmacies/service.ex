@@ -9,7 +9,9 @@ defmodule PharmacyApp.Pharmacies.Service do
 
   @doc """
   `opts` accepts `:client` (default `PlacesAdapter`) and `:cache`
-  (default `Cache`). Client returns `{:ok, places}` or
+  (default `Cache`). Client is called with
+  `(lat, lng, radius_m, [language_code: code])` and returns
+  `{:ok, places}` or
   `{:error, {:upstream, status, msg}} | {:error, :upstream_unavailable}`.
   Cache must expose `get(key)` and `put(key, value)`.
   """
@@ -24,7 +26,7 @@ defmodule PharmacyApp.Pharmacies.Service do
   end
 
   defp cached_or_fetch(validated, client, cache) do
-    key = Cache.key(validated.lat, validated.lng, validated.radius_m)
+    key = Cache.key(validated.lat, validated.lng, validated.radius_m, validated.language_code)
 
     case cache.get(key) do
       {:ok, value} -> {:ok, value}
@@ -41,14 +43,16 @@ defmodule PharmacyApp.Pharmacies.Service do
            |> Enum.reject(&is_nil/1)
            |> Pharmacies.filter(validated.radius_m)
            |> Pharmacies.sort() do
-      cache.put(Cache.key(validated.lat, validated.lng, validated.radius_m), pharmacies)
+      cache.put(Cache.key(validated.lat, validated.lng, validated.radius_m, validated.language_code), pharmacies)
       {:ok, pharmacies}
     end
   end
 
-  defp call_client(client, validated) when is_function(client, 3),
-    do: client.(validated.lat, validated.lng, validated.radius_m)
+  defp call_client(client, validated) when is_function(client, 4),
+    do: client.(validated.lat, validated.lng, validated.radius_m,
+          language_code: validated.language_code)
 
   defp call_client(client, validated),
-    do: client.search_nearby(validated.lat, validated.lng, validated.radius_m)
+    do: client.search_nearby(validated.lat, validated.lng, validated.radius_m,
+          language_code: validated.language_code)
 end

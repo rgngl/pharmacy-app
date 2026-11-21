@@ -30,8 +30,8 @@ defmodule PharmacyApp.Pharmacies.ServiceTest do
   def client_stub do
     parent = self()
 
-    fn lat, lng, radius_m ->
-      send(parent, {:client_called, lat, lng, radius_m})
+    fn lat, lng, radius_m, opts ->
+      send(parent, {:client_called, lat, lng, radius_m, opts[:language_code]})
       get_client_result()
     end
   end
@@ -66,7 +66,7 @@ defmodule PharmacyApp.Pharmacies.ServiceTest do
              )
 
     assert Enum.map(result, & &1.display_name) == ["Near", "Mid"]
-    assert_received {:client_called, 52.52, 13.405, 1000}
+    assert_received {:client_called, 52.52, 13.405, 1000, nil}
 
     # Cached and sorted
     assert {:ok, cached} = FakeCache.get(Pharmacies.Cache.key(52.52, 13.405, 1000))
@@ -113,7 +113,41 @@ defmodule PharmacyApp.Pharmacies.ServiceTest do
              )
 
     assert Enum.map(result, & &1.id) == ["cached"]
-    refute_received {:client_called, _, _, _}
+    refute_received {:client_called, _, _, _, _}
+  end
+
+  test "language_code is forwarded to the client and part of the cache key" do
+    client = client_stub()
+
+    set_client_result({:ok, []})
+    {:ok, _} =
+      Service.search(%{lat: 10.0, lng: 20.0, radius_m: 500, language_code: "fr-CA"},
+        client: client, cache: FakeCache
+      )
+    assert_received {:client_called, 10.0, 20.0, 500, "fr-CA"}
+
+    # Same query, different locale: hours text differs, so it must be a miss.
+    set_client_result({:ok, []})
+    {:ok, _} =
+      Service.search(%{lat: 10.0, lng: 20.0, radius_m: 500, language_code: "de"},
+        client: client, cache: FakeCache
+      )
+    assert_received {:client_called, 10.0, 20.0, 500, "de"}
+
+    # Same locale again: cache hit, no second upstream call.
+    {:ok, _} =
+      Service.search(%{lat: 10.0, lng: 20.0, radius_m: 500, language_code: "de"},
+        client: client, cache: FakeCache
+      )
+    refute_received {:client_called, _, _, _, _}
+  end
+
+  test "invalid language_code fails validation without touching the client" do
+    assert {:error, {:invalid_params, issues}} =
+             Service.search(%{lat: 10.0, lng: 20.0, radius_m: 500, language_code: "not a tag!"})
+
+    assert issues == ["language_code must be a BCP-47 language tag"]
+    refute_received {:client_called, _, _, _, _}
   end
 
   test "invalid params fail fast without touching the client" do
@@ -124,7 +158,7 @@ defmodule PharmacyApp.Pharmacies.ServiceTest do
              )
 
     assert issues == ["lat must be a number between -90 and 90"]
-    refute_received {:client_called, _, _, _}
+    refute_received {:client_called, _, _, _, _}
   end
 
   test "upstream errors pass through" do

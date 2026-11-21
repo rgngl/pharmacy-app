@@ -18,10 +18,12 @@ defmodule PharmacyApp.Pharmacies.Cache do
   end
 
   @doc """
-  Key: a ~100m lat/lng grid cell plus a radius bucket.
+  Key: a ~100m lat/lng grid cell plus a radius bucket and language tag.
+  The language is part of the key because opening hours are returned as
+  pre-formatted text in the requested locale.
   """
-  def key(lat, lng, radius_m) do
-    {round(lat / 0.001), round(lng / 0.001), round(radius_m / 100)}
+  def key(lat, lng, radius_m, language \\ nil) do
+    {round(lat / 0.001), round(lng / 0.001), round(radius_m / 100), language}
   end
 
   def get(key) do

@@ -18,7 +18,13 @@ defmodule PharmacyApp.PharmaciesTest do
   describe "validate_params/1" do
     test "accepts valid bounds and clamps radius" do
       {:ok, params} = Pharmacies.validate_params(%{lat: 52.52, lng: 13.405, radius_m: 999_999})
-      assert params == %{lat: 52.52, lng: 13.405, radius_m: 50_000}
+
+      assert params == %{
+               lat: 52.52,
+               lng: 13.405,
+               radius_m: 50_000,
+               language_code: nil
+             }
 
       {:ok, params} = Pharmacies.validate_params(%{lat: 52.52, lng: 13.405, radius_m: -5})
       assert params.radius_m == 1_000

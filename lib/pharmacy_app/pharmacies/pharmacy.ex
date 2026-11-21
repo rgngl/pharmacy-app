@@ -27,7 +27,10 @@ defmodule PharmacyApp.Pharmacies do
   """
   def validate_params(params) when is_map(params) do
     issues =
-      Enum.reject([lat_issue(params[:lat]), lng_issue(params[:lng])], &is_nil/1)
+      Enum.reject(
+        [lat_issue(params[:lat]), lng_issue(params[:lng]), language_issue(params[:language_code])],
+        &is_nil/1
+      )
 
     case issues do
       [] ->
@@ -35,7 +38,8 @@ defmodule PharmacyApp.Pharmacies do
          %{
            lat: params[:lat] * 1.0,
            lng: params[:lng] * 1.0,
-           radius_m: clamp_radius(params[:radius_m])
+           radius_m: clamp_radius(params[:radius_m]),
+           language_code: params[:language_code]
          }}
 
       issues ->
@@ -52,6 +56,16 @@ defmodule PharmacyApp.Pharmacies do
   defp lng_issue(lng) when is_number(lng) and lng >= -180 and lng <= 180, do: nil
   defp lng_issue(nil), do: "lng is required"
   defp lng_issue(_), do: "lng must be a number between -180 and 180"
+
+  defp language_issue(nil), do: nil
+
+  defp language_issue(code) when is_binary(code) do
+    if Regex.match?(~r/\A[a-zA-Z]{1,8}(-[a-zA-Z0-9]{1,8})*\z/, code),
+      do: nil,
+      else: "language_code must be a BCP-47 language tag"
+  end
+
+  defp language_issue(_), do: "language_code must be a string"
 
   defp clamp_radius(r) when is_number(r) and r >= 1, do: r |> min(@radius_max) |> max(1) |> trunc()
   defp clamp_radius(_), do: @radius_default

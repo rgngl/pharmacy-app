@@ -12,7 +12,7 @@ defmodule PharmacyAppWeb.PharmaciesController do
   unexpected) renders 502.
   """
   def index(conn, params) do
-    case Service.search(parse_params(params), service_opts()) do
+    case Service.search(parse_params(params, conn), service_opts()) do
       {:ok, pharmacies} ->
         json(conn, Enum.map(pharmacies, &Map.from_struct/1))
 
@@ -43,12 +43,33 @@ defmodule PharmacyAppWeb.PharmaciesController do
   # tests can stub the upstream without network access.
   defp service_opts, do: Application.get_env(:pharmacy_app, :service_opts, [])
 
-  defp parse_params(params) do
+  defp parse_params(params, conn) do
     %{
       lat: parse_float(params["lat"]),
       lng: parse_float(params["lng"]),
-      radius_m: parse_number(params["radius_m"])
+      radius_m: parse_number(params["radius_m"]),
+      language_code: parse_language(conn)
     }
+  end
+
+  # First Accept-Language tag wins; `*` or malformed tags fall back to the
+  # upstream default (nil). Quality parameters after `;` are ignored.
+  defp parse_language(conn) do
+    case get_req_header(conn, "accept-language") do
+      [header | _] ->
+        tag =
+          header
+          |> String.split(",", parts: 2)
+          |> hd()
+          |> String.split(";", parts: 2)
+          |> hd()
+          |> String.trim()
+
+        if Regex.match?(~r/\A[a-zA-Z]{1,8}(-[a-zA-Z0-9]{1,8})*\z/, tag), do: tag, else: nil
+
+      _ ->
+        nil
+    end
   end
 
   defp parse_float(nil), do: nil
