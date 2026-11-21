@@ -36,9 +36,12 @@ defmodule PharmacyApp.Pharmacies.PlacesAdapter do
            key: api_key,
            req: [headers: [{"x-goog-fieldmask", field_mask}]]
          ) do
-      {:ok, %{places: places}} -> {:ok, places || []}
+      {:ok, %{places: places}} ->
+        {:ok, places || []}
+
       {:error, %Googly.Places.Error{} = error} ->
         {:error, {:upstream, error.status, error.message || "upstream error"}}
+
       {:error, _exception} ->
         {:error, :upstream_unavailable}
     end
