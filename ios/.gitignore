@@ -1,0 +1,16 @@
+# Xcode
+## User settings
+xcuserdata/
+
+## Xcode 8+ and before
+*.xcscmblueprint
+*.xccheckout
+
+## Build
+DerivedData/
+build/
+
+## Various other generated stuff
+*.ipa
+*.dSYM.zip
+*.dSYM
