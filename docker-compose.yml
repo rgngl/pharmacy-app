@@ -1,0 +1,28 @@
+# docker-compose for the pharmacy-app backend (Phoenix release, port 4000).
+#
+# GOOGLE_MAPS_API_KEY is required at boot (config/runtime.exs hard-fails
+# without it). It is read from the shell environment or a root-level `.env`
+# file (git-ignored); the value below is a placeholder only — no key is baked
+# into the image. Get a real key from Google Cloud and run e.g.:
+#   echo 'GOOGLE_MAPS_API_KEY=<your-real-key>' > .env   # repo root
+# or export it in your shell before `docker compose up`.
+services:
+  backend:
+    build: ./backend
+    restart: unless-stopped
+    ports:
+      # The app listens on a fixed port 4000 (config/config.exs); there is no
+      # PORT env indirection, so host port must stay 4000 mapped here.
+      - "4000:4000"
+    environment:
+      # Placeholder — replace via .env or your shell. docker compose only
+      # substitutes ${...} from the shell / root .env, never from the image.
+      GOOGLE_MAPS_API_KEY: ${GOOGLE_MAPS_API_KEY:-REPLACE_ME_PLACEHOLDER}
+    healthcheck:
+      # Mirrors the image HEALTHCHECK; explicit here so `docker compose ps`
+      # reports health regardless of CLI version overrides.
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:4000/", "-o", "/dev/null"]
+      interval: 30s
+      timeout: 5s
+      start_period: 20s
+      retries: 3
