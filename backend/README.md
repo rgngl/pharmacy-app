@@ -62,7 +62,7 @@ Results are cached for 60 s on a ~100 m location grid; geocode results are cache
 
 ## Web UI
 
-A server-rendered page at `GET /` (HTML, no JS build step — script and style are inline in the HEEx template) shows nearby pharmacies with distance, open-now status, and opening hours.
+A server-rendered page at `GET /` (HTML, no JS build step — the script is inline in the HEEx template, styles ship via the `<.stylesheet />` component) shows nearby pharmacies with distance, open-now status, and opening hours. Reusable pieces (cards, pills, chips, icons) live in `lib/pharmacy_app_web/components/components.ex` as `Phoenix.Component` function components.
 
 Two ways to set the search origin:
 
