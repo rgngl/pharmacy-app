@@ -257,9 +257,9 @@ defmodule PharmacyAppWeb.Components do
   @icon_names [:pin, :locate, :map, :phone, :chevron]
 
   @doc """
-  Inline SVG icon. `name` is one of #{inspect(@icon_names)}.
+  Inline SVG icon. `name` is one of #{inspect(Enum.map(@icon_names, &to_string/1))}.
   """
-  attr :name, :atom, required: true, values: @icon_names
+  attr :name, :string, required: true, values: Enum.map(@icon_names, &to_string/1)
   attr :size, :integer, default: 17
 
   def icon(assigns) do
