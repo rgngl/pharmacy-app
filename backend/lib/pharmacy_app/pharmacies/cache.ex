@@ -7,7 +7,11 @@ defmodule PharmacyApp.Pharmacies.Cache do
 
   @table :pharmacy_cache
   @ttl :timer.seconds(60)
-  @sweep_interval Application.compile_env(:pharmacy_app, :cache_sweep_interval, :timer.seconds(10))
+  @sweep_interval Application.compile_env(
+                    :pharmacy_app,
+                    :cache_sweep_interval,
+                    :timer.seconds(10)
+                  )
 
   def child_spec(_arg) do
     %{id: __MODULE__, start: {__MODULE__, :start_link, []}}
@@ -24,6 +28,22 @@ defmodule PharmacyApp.Pharmacies.Cache do
   """
   def key(lat, lng, radius_m, language \\ nil) do
     {round(lat / 0.001), round(lng / 0.001), round(radius_m / 100), language}
+  end
+
+  @doc """
+  Key for an address → coordinates lookup: the address normalized
+  (trimmed, lowercased, whitespace collapsed) plus the language tag, so
+  "  Hauptstr. 5  " and "hauptstr. 5" share an entry but locales don't.
+  """
+  def geocode_key(address, language \\ nil) when is_binary(address) do
+    {normalize(address), language}
+  end
+
+  defp normalize(address) do
+    address
+    |> String.trim()
+    |> String.downcase()
+    |> String.replace(~r/\s+/, " ")
   end
 
   def get(key) do

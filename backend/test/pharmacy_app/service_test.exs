@@ -39,10 +39,21 @@ defmodule PharmacyApp.Pharmacies.ServiceTest do
   def get_client_result, do: Process.get(:client_result)
   def set_client_result(result), do: Process.put(:client_result, result)
 
+  defmodule FakeGeocoder do
+    # Sends {:geocode_called, address, language} to the test process and
+    # returns what the test stored under :geocoder_result.
+    def geocode(address, opts) do
+      send(Process.get(:geocoder_parent), {:geocode_called, address, opts[:language_code]})
+      Process.get(:geocoder_result)
+    end
+  end
+
   setup do
     FakeCache.start()
     FakeCache.clear()
     set_client_result({:ok, []})
+    Process.put(:geocoder_parent, self())
+    Process.put(:geocoder_result, {:ok, %{lat: 52.52, lng: 13.405, formatted_address: "Berlin"}})
     :ok
   end
 
@@ -120,25 +131,33 @@ defmodule PharmacyApp.Pharmacies.ServiceTest do
     client = client_stub()
 
     set_client_result({:ok, []})
+
     {:ok, _} =
       Service.search(%{lat: 10.0, lng: 20.0, radius_m: 500, language_code: "fr-CA"},
-        client: client, cache: FakeCache
+        client: client,
+        cache: FakeCache
       )
+
     assert_received {:client_called, 10.0, 20.0, 500, "fr-CA"}
 
     # Same query, different locale: hours text differs, so it must be a miss.
     set_client_result({:ok, []})
+
     {:ok, _} =
       Service.search(%{lat: 10.0, lng: 20.0, radius_m: 500, language_code: "de"},
-        client: client, cache: FakeCache
+        client: client,
+        cache: FakeCache
       )
+
     assert_received {:client_called, 10.0, 20.0, 500, "de"}
 
     # Same locale again: cache hit, no second upstream call.
     {:ok, _} =
       Service.search(%{lat: 10.0, lng: 20.0, radius_m: 500, language_code: "de"},
-        client: client, cache: FakeCache
+        client: client,
+        cache: FakeCache
       )
+
     refute_received {:client_called, _, _, _, _}
   end
 
@@ -177,5 +196,94 @@ defmodule PharmacyApp.Pharmacies.ServiceTest do
                client: client_stub(),
                cache: FakeCache
              )
+  end
+
+  test "address search: geocodes then searches with the resolved point" do
+    set_client_result(
+      {:ok, [google_place(52.5215, 13.405, "Near"), google_place(52.53, 13.405, "Far")]}
+    )
+
+    assert {:ok, %{lat: 52.52, lng: 13.405, formatted_address: "Berlin", pharmacies: result}} =
+             Service.search_by_address("Alexanderplatz, Berlin",
+               radius_m: 1000,
+               geocoder: FakeGeocoder,
+               client: client_stub(),
+               cache: FakeCache
+             )
+
+    assert Enum.map(result, & &1.display_name) == ["Near"]
+    assert_received {:geocode_called, "Alexanderplatz, Berlin", nil}
+    assert_received {:client_called, 52.52, 13.405, 1000, nil}
+  end
+
+  test "address search: geocode result is cached per address and language" do
+    set_client_result({:ok, []})
+
+    {:ok, _} =
+      Service.search_by_address("A",
+        geocoder: FakeGeocoder,
+        client: client_stub(),
+        cache: FakeCache
+      )
+
+    {:ok, _} =
+      Service.search_by_address("A",
+        geocoder: FakeGeocoder,
+        client: client_stub(),
+        cache: FakeCache
+      )
+
+    assert_received {:geocode_called, "A", nil}
+    refute_received {:geocode_called, _, _}
+
+    # Different locale → different cache key → geocode runs again.
+    {:ok, _} =
+      Service.search_by_address("A",
+        language_code: "de",
+        geocoder: FakeGeocoder,
+        client: client_stub(),
+        cache: FakeCache
+      )
+
+    assert_received {:geocode_called, "A", "de"}
+  end
+
+  test "address search: not found stops before the pharmacy client" do
+    Process.put(:geocoder_result, {:error, :address_not_found})
+
+    assert {:error, :address_not_found} =
+             Service.search_by_address("nowhere",
+               geocoder: FakeGeocoder,
+               client: client_stub(),
+               cache: FakeCache
+             )
+
+    assert_received {:geocode_called, "nowhere", nil}
+    refute_received {:client_called, _, _, _, _}
+  end
+
+  test "address search: upstream geocode errors pass through" do
+    Process.put(:geocoder_result, {:error, {:upstream, 403, "denied"}})
+
+    assert {:error, {:upstream, 403, "denied"}} =
+             Service.search_by_address("x",
+               geocoder: FakeGeocoder,
+               client: client_stub(),
+               cache: FakeCache
+             )
+
+    refute_received {:client_called, _, _, _, _}
+  end
+
+  test "address search: invalid language fails validation without geocoding" do
+    assert {:error, {:invalid_params, ["language_code must be a BCP-47 language tag"]}} =
+             Service.search_by_address("x",
+               language_code: "not a tag!",
+               geocoder: FakeGeocoder,
+               client: client_stub(),
+               cache: FakeCache
+             )
+
+    refute_received {:geocode_called, _, _}
   end
 end

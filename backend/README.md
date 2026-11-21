@@ -44,23 +44,32 @@ curl 'http://localhost:4000/api/pharmacies?lat=52.52&lng=13.405&radius_m=2000'
 
 Query parameters:
 
-| Param     | Required | Meaning                                        |
-|-----------|----------|------------------------------------------------|
-| `lat`     | yes      | User latitude, -90 to 90                       |
-| `lng`     | yes      | User longitude, -180 to 180                    |
-| `radius_m`| yes      | Search radius in meters, clamped to 1–50 000   |
+| Param     | Required                       | Meaning                                        |
+|-----------|--------------------------------|------------------------------------------------|
+| `lat`     | yes, unless `q` is given       | User latitude, -90 to 90                       |
+| `lng`     | yes, unless `q` is given       | User longitude, -180 to 180                    |
+| `q`       | yes, unless `lat`/`lng` given  | Free-form address; geocoded via Places Text Search, then searched around the top hit. Explicit `lat`/`lng` win when both are sent. |
+| `radius_m`| no (default 1000)              | Search radius in meters, clamped to 1–50 000   |
 
 Responses:
 
-- `200` — JSON list of pharmacies: `id`, `display_name`, `address`, `lat`, `lng`, `distance_m` (computed locally via haversine), `open_now` (always `null`; the Places search response has no open-now field).
+- `200` — JSON list of pharmacies: `id`, `display_name`, `address`, `lat`, `lng`, `distance_m` (computed locally via haversine), `open_now`, `opening_hours`.
 - `422` — invalid parameters; body includes an issue list.
+- `404` — `q` given but Google returned no matching address.
 - `4xx` / `502` — upstream (Google) error, mirrored or mapped by the controller.
 
-Results are cached for 60 s on a ~100 m location grid.
+Results are cached for 60 s on a ~100 m location grid; geocode results are cached for 60 s per normalized address and language.
 
 ## Web UI
 
-A server-rendered page at `GET /` (HTML, no JS build step — script and style are inline in the HEEx template) shows nearby pharmacies with distance, open-now status, and opening hours. There is no form: on page load the browser's Geolocation API detects your position and the page reloads with `?lat=..&lng=..` in the URL so Phoenix renders the results server-side. While locating, a "Detecting your location…" state is shown; if permission is denied, the fix fails, or the request times out, an error message with a **Retry** button appears. Geolocation requires a secure context: if the page is opened over plain HTTP without geolocation support, it asks you to retry over HTTPS — or to pass coordinates manually as `?lat=&lng=` (with optional `radius_m`), which remains a supported fallback. Radius presets (500 m / 1 km / 2 km / 5 km) appear as links next to the results; the default is 1000 m. Invalid input shows inline errors, and upstream (Google) failures show a banner, mirroring the JSON API's status codes.
+A server-rendered page at `GET /` (HTML, no JS build step — script and style are inline in the HEEx template) shows nearby pharmacies with distance, open-now status, and opening hours.
+
+Two ways to set the search origin:
+
+- **Address box** — a free-form address submitted as `?q=…`. The server geocodes it (Places Text Search, top hit), then searches pharmacies around the resolved point. The resolved address is shown above the results ("Showing pharmacies near …") and the radius chips re-submit with the same `q`; the geocode result is cached, so chip clicks don't re-bill a Text Search. A non-matching address shows a "Couldn't find an address matching …" banner instead of results.
+- **Use my location** — a button that asks the browser's Geolocation API and reloads with `?lat=..&lng=..` (dropping any `q`). While locating, a "Detecting your location…" state is shown; if permission is denied, the fix fails, or the request times out, an error message with a **Retry** button appears. Geolocation requires a secure context: if the page is opened over plain HTTP without geolocation support, it asks you to retry over HTTPS — or to pass coordinates manually as `?lat=&lng=` (with optional `radius_m`), which remains a supported fallback.
+
+Unlike the earlier version, the page no longer auto-locates on load; nothing is fetched until you search by address or click "Use my location". Radius presets (500 m / 1 km / 2 km / 5 km) appear as links next to the results; the default is 1000 m. Invalid input shows inline errors, and upstream (Google) failures show a banner, mirroring the JSON API's status codes.
 
 ## Tests
 

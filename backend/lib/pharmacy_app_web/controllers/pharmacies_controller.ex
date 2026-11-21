@@ -12,7 +12,7 @@ defmodule PharmacyAppWeb.PharmaciesController do
   unexpected) renders 502.
   """
   def index(conn, params) do
-    case Service.search(parse_params(params, conn), service_opts()) do
+    case route(conn, params) do
       {:ok, pharmacies} ->
         json(conn, Enum.map(pharmacies, &Map.from_struct/1))
 
@@ -20,6 +20,11 @@ defmodule PharmacyAppWeb.PharmaciesController do
         conn
         |> put_status(422)
         |> json(%{errors: issues})
+
+      {:error, :address_not_found} ->
+        conn
+        |> put_status(404)
+        |> json(%{errors: ["address not found"]})
 
       {:error, {:upstream, status, message}}
       when is_integer(status) and status >= 400 and status < 500 ->
@@ -36,6 +41,39 @@ defmodule PharmacyAppWeb.PharmaciesController do
         conn
         |> put_status(502)
         |> json(%{errors: ["upstream unavailable"]})
+    end
+  end
+
+  # `q` (free-form address) is used only when lat/lng are absent; explicit
+  # coordinates always win.
+  defp route(conn, params) do
+    q = trim(params["q"])
+    lat = parse_float(params["lat"])
+    lng = parse_float(params["lng"])
+
+    cond do
+      is_binary(q) and lat == nil and lng == nil ->
+        case Service.search_by_address(
+               q,
+               [radius_m: parse_number(params["radius_m"]), language_code: parse_language(conn)] ++
+                 service_opts()
+             ) do
+          # Same JSON shape as the coordinate path: a plain pharmacy list.
+          {:ok, %{pharmacies: pharmacies}} -> {:ok, pharmacies}
+          other -> other
+        end
+
+      true ->
+        Service.search(parse_params(params, conn), service_opts())
+    end
+  end
+
+  defp trim(nil), do: nil
+
+  defp trim(value) do
+    case String.trim(to_string(value)) do
+      "" -> nil
+      trimmed -> trimmed
     end
   end
 

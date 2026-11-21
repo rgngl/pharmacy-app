@@ -25,6 +25,30 @@
         background: #0b62d6;
         color: #fff;
       }
+      button.secondary {
+        background: transparent;
+        color: #0b62d6;
+        border: 1px solid #0b62d6;
+      }
+      .address-form {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.5rem;
+        align-items: center;
+        margin: 0 0 1rem;
+      }
+      .address-form input[type="text"] {
+        flex: 1 1 14rem;
+        padding: 0.4rem 0.6rem;
+        border: 1px solid #ccc;
+        border-radius: 6px;
+        font: inherit;
+      }
+      .resolved {
+        color: #555;
+        font-size: 0.85rem;
+        margin: 0.5rem 0;
+      }
       .status {
         display: flex;
         align-items: center;
@@ -109,6 +133,20 @@
   <body>
     <h1>Find a pharmacy</h1>
 
+    <form method="get" action="/" class="address-form">
+      <label class="hidden" for="q">Address</label>
+      <input
+        type="text"
+        id="q"
+        name="q"
+        value={@submitted["q"] || ""}
+        placeholder="Enter an address"
+        autocomplete="street-address"
+      />
+      <button type="submit">Search</button>
+      <button type="button" class="secondary" id="use-location">Use my location</button>
+    </form>
+
     <div id="geo-status" class="status hidden">
       <span class="spinner hidden" aria-hidden="true"></span>
       <span id="geo-status-text">Detecting your location…</span>
@@ -128,21 +166,27 @@
     <% end %>
 
     <%= if assigns[:no_params] do %>
-      <p class="empty">Allow location access in your browser to find nearby pharmacies.</p>
+      <p class="empty">Enter an address above, or use your location, to find nearby pharmacies.</p>
     <% else %>
-      <%= if is_binary(@submitted["lat"]) and @submitted["lat"] != "" and
-            is_binary(@submitted["lng"]) and @submitted["lng"] != "" do %>
+      <%= if assigns[:resolved] do %>
+        <p class="resolved">Showing pharmacies near {@resolved}.</p>
+      <% end %>
+      <%= if (is_binary(@submitted["lat"]) and @submitted["lat"] != "" and
+            is_binary(@submitted["lng"]) and @submitted["lng"] != "") or
+            (is_binary(@submitted["q"]) and @submitted["q"] != "") do %>
+        <% base =
+          if is_binary(@submitted["q"]) and @submitted["q"] != "" do
+            %{"q" => @submitted["q"]}
+          else
+            %{"lat" => @submitted["lat"] || "", "lng" => @submitted["lng"] || ""}
+          end %>
         <div class="radius-links">
           <span>Radius:</span>
           <%= for {label, m} <- [{"500 m", 500}, {"1 km", 1000}, {"2 km", 2000}, {"5 km", 5000}] do %>
             <.link
               class={if PharmacyAppWeb.PageHTML.active_radius?(@submitted, m), do: "active", else: nil}
               href={"/?" <>
-                URI.encode_query(%{
-                  "lat" => @submitted["lat"] || "",
-                  "lng" => @submitted["lng"] || "",
-                  "radius_m" => m
-                })}
+                URI.encode_query(Map.put(base, "radius_m", m))}
               method="get"
             >{label}</.link>
           <% end %>
@@ -222,6 +266,8 @@
           var next = new URLSearchParams(window.location.search);
           next.set("lat", lat);
           next.set("lng", lng);
+          // Explicit coordinates win over q on the server; keep the URL honest.
+          next.delete("q");
           window.location.replace(
             window.location.pathname + "?" + next.toString()
           );
@@ -250,10 +296,9 @@
         }
 
         retryBtn.addEventListener("click", locate);
-
-        if (!hasCoords()) {
-          locate();
-        }
+        document
+          .getElementById("use-location")
+          .addEventListener("click", locate);
       })();
     </script>
   </body>

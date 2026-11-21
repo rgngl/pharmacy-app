@@ -9,4 +9,14 @@ defmodule PharmacyApp.TestClient do
     fun = Application.fetch_env!(:pharmacy_app, :test_client_fn)
     fun.(lat, lng, radius_m, opts)
   end
+
+  @doc """
+  Injectable geocoder for address-search tests. The test stores a fun under
+  `:pharmacy_app, :test_geocoder_fn`; it receives (address, opts) and
+  returns the geocoder contract's results.
+  """
+  def geocode(address, opts \\ []) do
+    fun = Application.fetch_env!(:pharmacy_app, :test_geocoder_fn)
+    fun.(address, opts)
+  end
 end
