@@ -61,6 +61,10 @@ defmodule PharmacyApp.Pharmacies do
   `%Pharmacy{}`, computing the haversine distance in metres from
   `user_point = {lat, lng}` locally.
 
+  Returns `nil` when the place carries no coordinates (Google omits
+  `location` unless it was requested in the field mask); callers should
+  drop those results.
+
   `:open_now` and `:opening_hours` come from `currentOpeningHours`
   (next seven days incl. special hours); both are nil when Google
   returned no hours for the place.
@@ -71,18 +75,23 @@ defmodule PharmacyApp.Pharmacies do
       ) do
     lat = place.location && place.location.latitude
     lng = place.location && place.location.longitude
-    hours = place.current_opening_hours
 
-    %__MODULE__{
-      id: place.id,
-      display_name: place.display_name && place.display_name.text,
-      address: place.formatted_address,
-      lat: lat,
-      lng: lng,
-      distance_m: haversine_m(user_lat, user_lng, lat, lng),
-      open_now: hours && hours.open_now,
-      opening_hours: hours && hours.weekday_descriptions
-    }
+    if is_nil(lat) or is_nil(lng) do
+      nil
+    else
+      hours = place.current_opening_hours
+
+      %__MODULE__{
+        id: place.id,
+        display_name: place.display_name && place.display_name.text,
+        address: place.formatted_address,
+        lat: lat,
+        lng: lng,
+        distance_m: haversine_m(user_lat, user_lng, lat, lng),
+        open_now: hours && hours.open_now,
+        opening_hours: hours && hours.weekday_descriptions
+      }
+    end
   end
 
   @doc """

@@ -38,6 +38,7 @@ defmodule PharmacyApp.Pharmacies.Service do
          pharmacies <-
            google_places
            |> Enum.map(&Pharmacies.from_google(&1, point))
+           |> Enum.reject(&is_nil/1)
            |> Pharmacies.filter(validated.radius_m)
            |> Pharmacies.sort() do
       cache.put(Cache.key(validated.lat, validated.lng, validated.radius_m), pharmacies)

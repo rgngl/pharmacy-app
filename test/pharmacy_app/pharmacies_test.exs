@@ -99,6 +99,13 @@ defmodule PharmacyApp.PharmaciesTest do
       }
     end
 
+    test "returns nil and skips distance computation when location is missing" do
+      # Google omits `location` unless it is requested in the field mask.
+      place = %Googly.Places.Model.GoogleMapsPlacesV1Place{id: "place-no-loc"}
+
+      assert Pharmacies.from_google(place, @berlin) == nil
+    end
+
     test "computes distance in metres" do
       pharmacy = Pharmacies.from_google(google_place(elem(@hamburg, 0), elem(@hamburg, 1)), @berlin)
       assert pharmacy.distance_m > 252_000

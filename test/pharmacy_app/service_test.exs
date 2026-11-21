@@ -73,6 +73,26 @@ defmodule PharmacyApp.Pharmacies.ServiceTest do
     assert Enum.map(cached, & &1.display_name) == ["Near", "Mid"]
   end
 
+  test "drops places without location instead of crashing" do
+    # Google omits `location` when it is missing from the field mask; the
+    # service must skip such places rather than raise in haversine_m/4.
+    set_client_result(
+      {:ok,
+       [
+         google_place(52.5215, 13.405, "Near"),
+         %Googly.Places.Model.GoogleMapsPlacesV1Place{id: "no-location"}
+       ]}
+    )
+
+    assert {:ok, result} =
+             Service.search(%{lat: 52.52, lng: 13.405, radius_m: 1000},
+               client: client_stub(),
+               cache: FakeCache
+             )
+
+    assert Enum.map(result, & &1.id) == ["Near"]
+  end
+
   def google_place(lat, lng, name) do
     %Googly.Places.Model.GoogleMapsPlacesV1Place{
       id: name,
