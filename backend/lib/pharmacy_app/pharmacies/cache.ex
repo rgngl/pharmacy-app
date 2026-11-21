@@ -24,7 +24,9 @@ defmodule PharmacyApp.Pharmacies.Cache do
   @doc """
   Key: a ~100m lat/lng grid cell plus a radius bucket and language tag.
   The language is part of the key because opening hours are returned as
-  pre-formatted text in the requested locale.
+  pre-formatted text in the requested locale. Walking times are computed
+  from the exact request coordinates; within a cell they may be from a
+  point up to ~80 m from the next caller's.
   """
   def key(lat, lng, radius_m, language \\ nil) do
     {round(lat / 0.001), round(lng / 0.001), round(radius_m / 100), language}

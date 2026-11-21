@@ -23,6 +23,33 @@ defmodule PharmacyAppWeb.PageHTML do
   def format_distance(nil), do: ""
 
   @doc """
+  Walking time and distance along pedestrian paths: "7 min (540 m)".
+  Shows whichever part is available; "" when the place has no routing
+  summary. Uses `Map.get` so caches holding pre-walk structs don't crash.
+  """
+  def format_walk(pharmacy) do
+    duration_s = Map.get(pharmacy, :walk_duration_s)
+    distance_m = Map.get(pharmacy, :walk_distance_m)
+
+    parts =
+      [
+        duration_part(duration_s),
+        distance_part(distance_m)
+      ]
+      |> Enum.reject(&is_nil/1)
+      |> Enum.join(" ")
+
+    parts
+  end
+
+  defp duration_part(s) when is_number(s) and s < 60, do: "< 1 min"
+  defp duration_part(s) when is_number(s), do: "#{round(s / 60)} min"
+  defp duration_part(_), do: nil
+
+  defp distance_part(m) when is_number(m), do: "(#{format_distance(m)})"
+  defp distance_part(_), do: nil
+
+  @doc """
   True when `m` is the radius currently in effect: the parsed submitted
   `radius_m`, or the 1000 m default when absent/invalid.
   """

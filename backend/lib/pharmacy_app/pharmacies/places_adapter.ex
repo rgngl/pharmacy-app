@@ -58,9 +58,12 @@ defmodule PharmacyApp.Pharmacies.PlacesAdapter do
   end
 
   @doc """
-  Searches nearby pharmacies. Returns:
+  Searches nearby pharmacies, computing walking routes from the given
+  origin. Returns:
 
-  * `{:ok, [%Googly.Places.Model.GoogleMapsPlacesV1Place{}]}`
+  * `{:ok, %{places: [%Googly.Places.Model.GoogleMapsPlacesV1Place{}],
+     routing_summaries: [%Googly.Places.Model.GoogleMapsPlacesV1RoutingSummary{}]}}` —
+    summaries are index-aligned with places (entries may be empty)
   * `{:error, {:upstream, status, message}}` — Google rejected the request
   * `{:error, :upstream_unavailable}` — network/transport failure
   """
@@ -82,19 +85,26 @@ defmodule PharmacyApp.Pharmacies.PlacesAdapter do
             center: %Googly.Places.Model.GoogleTypeLatLng{latitude: lat, longitude: lng},
             radius: radius_m
           }
+        },
+      # Walking time/distance from the user's point along real pedestrian
+      # paths, returned as per-place routing summaries.
+      routing_parameters:
+        %Googly.Places.Model.GoogleMapsPlacesV1RoutingParameters{
+          origin: %Googly.Places.Model.GoogleTypeLatLng{latitude: lat, longitude: lng},
+          travel_mode: "WALK"
         }
     }
 
     field_mask =
-      "places.id,places.displayName,places.formattedAddress,places.location,places.currentOpeningHours"
+      "places.id,places.displayName,places.formattedAddress,places.location,places.currentOpeningHours,routingSummaries"
 
     case Googly.Places.Places.search_nearby(
            body: body,
            key: api_key,
            req: [headers: [{"x-goog-fieldmask", field_mask}]]
          ) do
-      {:ok, %{places: places}} ->
-        {:ok, places || []}
+      {:ok, %{places: places, routing_summaries: summaries}} ->
+        {:ok, %{places: places || [], routing_summaries: summaries || []}}
 
       {:error, %Googly.Places.Error{} = error} ->
         {:error, {:upstream, error.status, error.message || "upstream error"}}

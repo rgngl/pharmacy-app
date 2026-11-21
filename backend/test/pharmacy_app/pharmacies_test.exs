@@ -118,6 +118,32 @@ defmodule PharmacyApp.PharmaciesTest do
     end
   end
 
+  describe "put_walk/2" do
+    defp summary(legs) do
+      %Googly.Places.Model.GoogleMapsPlacesV1RoutingSummary{legs: legs}
+    end
+
+    test "attaches walking duration and distance from the first leg" do
+      leg = %Googly.Places.Model.GoogleMapsPlacesV1RoutingSummaryLeg{
+        distance_meters: 540,
+        duration: "726s"
+      }
+
+      pharmacy = pharmacy(300)
+      walked = Pharmacies.put_walk(pharmacy, summary([leg]))
+
+      assert walked.walk_duration_s == 726
+      assert walked.walk_distance_m == 540
+      assert walked.distance_m == 300
+    end
+
+    test "no-op on nil summary or empty legs" do
+      pharmacy = pharmacy(300)
+      assert Pharmacies.put_walk(pharmacy, nil) == pharmacy
+      assert Pharmacies.put_walk(pharmacy, summary([])) == pharmacy
+    end
+  end
+
   describe "filter/2 and sort/1" do
     def pharmacy(m) do
       %Pharmacies{
@@ -139,6 +165,14 @@ defmodule PharmacyApp.PharmaciesTest do
     test "sort orders ascending" do
       assert Enum.map(Pharmacies.sort([pharmacy(300), pharmacy(100), pharmacy(200)]), & &1.distance_m) ==
                [100, 200, 300]
+    end
+
+    test "sort puts open pharmacies first, then by distance" do
+      open = %{pharmacy(1000) | open_now: true}
+      closed = %{pharmacy(100) | open_now: false}
+      unknown = %{pharmacy(200) | open_now: nil}
+
+      assert Pharmacies.sort([closed, open, unknown]) == [open, closed, unknown]
     end
   end
 end

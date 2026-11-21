@@ -3,7 +3,18 @@ defmodule PharmacyApp.Pharmacies do
   Pure domain for the pharmacy search feature. No I/O happens here.
   """
 
-  defstruct [:id, :display_name, :address, :lat, :lng, :distance_m, :open_now, :opening_hours]
+  defstruct [
+    :id,
+    :display_name,
+    :address,
+    :lat,
+    :lng,
+    :distance_m,
+    :open_now,
+    :opening_hours,
+    :walk_distance_m,
+    :walk_duration_s
+  ]
 
   @type t :: %__MODULE__{
           id: String.t() | nil,
@@ -13,7 +24,11 @@ defmodule PharmacyApp.Pharmacies do
           lng: float() | nil,
           distance_m: number(),
           open_now: boolean() | nil,
-          opening_hours: [String.t()] | nil
+          opening_hours: [String.t()] | nil,
+          # Pedestrian path to the search origin, from Google routing
+          # summaries; nil when no summary was returned.
+          walk_distance_m: number() | nil,
+          walk_duration_s: integer() | nil
         }
 
   @radius_max 50_000
@@ -109,6 +124,46 @@ defmodule PharmacyApp.Pharmacies do
   end
 
   @doc """
+  Attaches pedestrian-path distance/duration from the place's routing
+  summary (same index as the place in the Google response). Uses the first
+  leg — with a set origin, the summary has exactly one leg. No-op on nil
+  summary; nil pharmacy passes through for pipeline use.
+  """
+  def put_walk(nil, _summary), do: nil
+
+  def put_walk(%__MODULE__{} = pharmacy, nil), do: pharmacy
+
+  def put_walk(%__MODULE__{} = pharmacy, summary) do
+    case summary.legs do
+      [%Googly.Places.Model.GoogleMapsPlacesV1RoutingSummaryLeg{} = leg | _] ->
+        %__MODULE__{
+          pharmacy
+          | walk_distance_m: leg.distance_meters,
+            walk_duration_s: parse_duration_s(leg.duration)
+        }
+
+      _ ->
+        pharmacy
+    end
+  end
+
+  # Google durations are protobuf-style strings like "726s".
+  defp parse_duration_s(duration) when is_binary(duration) do
+    case Regex.run(~r/^(\d+(?:\.\d+)?)s$/, duration) do
+      [_, s] ->
+        s
+        |> then(&if String.contains?(&1, "."), do: &1, else: &1 <> ".0")
+        |> String.to_float()
+        |> round()
+
+      _ ->
+        nil
+    end
+  end
+
+  defp parse_duration_s(_), do: nil
+
+  @doc """
   Keeps only pharmacies within `radius_m` metres.
   """
   def filter(pharmacies, radius_m) when is_list(pharmacies) and is_number(radius_m) do
@@ -116,10 +171,14 @@ defmodule PharmacyApp.Pharmacies do
   end
 
   @doc """
-  Sorts pharmacies by distance, ascending.
+  Sorts open pharmacies first, then by distance ascending. `open_now` nil
+  (unknown) ranks with closed ones, ordered by distance among themselves.
   """
   def sort(pharmacies) when is_list(pharmacies) do
-    Enum.sort_by(pharmacies, & &1.distance_m, :asc)
+    Enum.sort_by(pharmacies, fn
+      %{open_now: true, distance_m: d} -> {false, d}
+      %{distance_m: d} -> {true, d}
+    end)
   end
 
   @doc """

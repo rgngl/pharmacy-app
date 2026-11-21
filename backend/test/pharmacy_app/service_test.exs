@@ -84,6 +84,41 @@ defmodule PharmacyApp.Pharmacies.ServiceTest do
     assert Enum.map(cached, & &1.display_name) == ["Near", "Mid"]
   end
 
+  test "routing summaries are attached index-aligned as walk times" do
+    near = google_place(52.5215, 13.405, "Near")
+    mid = google_place(52.5233, 13.405, "Mid")
+
+    set_client_result(
+      {:ok,
+       %{
+         places: [near, mid],
+         routing_summaries: [
+           %Googly.Places.Model.GoogleMapsPlacesV1RoutingSummary{
+             legs: [
+               %Googly.Places.Model.GoogleMapsPlacesV1RoutingSummaryLeg{
+                 distance_meters: 210,
+                 duration: "180s"
+               }
+             ]
+           },
+           # Empty entry: no summary available for "Mid".
+           %Googly.Places.Model.GoogleMapsPlacesV1RoutingSummary{legs: []}
+         ]
+       }}
+    )
+
+    assert {:ok, result} =
+             Service.search(%{lat: 52.52, lng: 13.405, radius_m: 1000},
+               client: client_stub(),
+               cache: FakeCache
+             )
+
+    assert Enum.map(result, & &1.display_name) == ["Near", "Mid"]
+    assert Enum.find(result, &(&1.display_name == "Near")).walk_duration_s == 180
+    assert Enum.find(result, &(&1.display_name == "Near")).walk_distance_m == 210
+    assert Enum.find(result, &(&1.display_name == "Mid")).walk_duration_s == nil
+  end
+
   test "drops places without location instead of crashing" do
     # Google omits `location` when it is missing from the field mask; the
     # service must skip such places rather than raise in haversine_m/4.

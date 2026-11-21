@@ -199,7 +199,7 @@
           <table>
             <thead>
               <tr>
-                <th>Name</th><th>Address</th><th>Distance</th><th>Status</th>
+                <th>Name</th><th>Address</th><th>Distance</th><th>Walk</th><th>Status</th>
               </tr>
             </thead>
             <tbody>
@@ -208,6 +208,7 @@
                   <td>{p.display_name}</td>
                   <td>{p.address}</td>
                   <td>{PharmacyAppWeb.PageHTML.format_distance(p.distance_m)}</td>
+                  <td>{PharmacyAppWeb.PageHTML.format_walk(p)}</td>
                   <td>
                     <%= if not is_nil(p.open_now) do %>
                       <span class={if p.open_now, do: "badge", else: "badge closed"}>

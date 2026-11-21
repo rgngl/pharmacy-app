@@ -109,11 +109,15 @@ defmodule PharmacyApp.Pharmacies.Service do
   end
 
   defp miss(validated, client, cache) do
-    with {:ok, google_places} <- call_client(client, validated),
+    with {:ok, client_result} <- call_client(client, validated),
          point = {validated.lat, validated.lng},
+         {google_places, summaries} = split_result(client_result),
          pharmacies <-
            google_places
-           |> Enum.map(&Pharmacies.from_google(&1, point))
+           |> Enum.zip(summaries)
+           |> Enum.map(fn {place, summary} ->
+             place |> Pharmacies.from_google(point) |> Pharmacies.put_walk(summary)
+           end)
            |> Enum.reject(&is_nil/1)
            |> Pharmacies.filter(validated.radius_m)
            |> Pharmacies.sort() do
@@ -125,6 +129,17 @@ defmodule PharmacyApp.Pharmacies.Service do
       {:ok, pharmacies}
     end
   end
+
+  # The adapter returns `{:ok, %{places:, routing_summaries:}}`; plain
+  # lists are still accepted so injected fake clients need no summaries.
+  # Summaries are padded to the place count: Enum.zip would otherwise
+  # truncate when the upstream returns fewer (or a fake returns none).
+  defp split_result(%{places: places, routing_summaries: summaries}) do
+    places = places || []
+    {places, Enum.take(summaries || [], length(places)) ++ List.duplicate(nil, length(places))}
+  end
+
+  defp split_result(places) when is_list(places), do: {places, List.duplicate(nil, length(places))}
 
   defp call_client(client, validated) when is_function(client, 4),
     do:
