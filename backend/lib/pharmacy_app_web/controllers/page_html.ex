@@ -6,27 +6,29 @@ defmodule PharmacyAppWeb.PageHTML do
   use Phoenix.Component
   import PharmacyAppWeb.Components
 
-  embed_templates "page_html/*"
+  alias PharmacyAppWeb.Params
+
+  embed_templates("page_html/*")
 
   @doc """
-  True when `m` is the radius currently in effect: the parsed submitted
-  `radius_m`, or the 1000 m default when absent/invalid.
+  Stable query params for the radius chips, built from the *effective*
+  search mode: coordinate searches keep lat/lng (q is dropped), address
+  searches keep q (coordinates are dropped). nil when there is no origin
+  to link to.
   """
-  def active_radius?(submitted, m) when is_map(submitted) and is_integer(m) do
-    case Float.parse(to_string(submitted["radius_m"] || "")) do
-      {r, ""} when is_number(r) and r >= 1 -> trunc(r) == m
-      _ -> m == 1000
-    end
+  def chip_query(%Params{origin: :address, q: q}) when is_binary(q) and q != "" do
+    %{"q" => q}
   end
 
-  @doc """
-  Radius shown in the empty-state message: parsed submitted value or the
-  default 1000 m when absent/invalid.
-  """
-  def radius_text(submitted) when is_map(submitted) do
-    case Float.parse(to_string(submitted["radius_m"] || "")) do
-      {r, ""} when is_number(r) and r >= 1 -> "#{trunc(r)} m"
-      _ -> "1000 m"
-    end
+  def chip_query(%Params{origin: :coords, lat: lat, lng: lng}) when lat != nil and lng != nil do
+    %{"lat" => lat, "lng" => lng}
   end
+
+  def chip_query(_), do: nil
+
+  @doc """
+  Radius shown in result text: the effective (clamped) value from the
+  parser. Raw input is never re-parsed here.
+  """
+  def radius_text(%Params{radius_m: m}) when is_integer(m), do: "#{m} m"
 end

@@ -5,14 +5,18 @@ defmodule PharmacyAppWeb.PharmaciesControllerTest do
 
   @endpoint PharmacyAppWeb.Endpoint
 
+  # The API contract's 12 public fields, exactly as the serializer emits them.
+  @contract_keys ~w(id display_name address lat lng distance_m open_now opening_hours closes_at phone_number walk_distance_m walk_duration_s)
+
   setup do
     on_exit(fn ->
       Application.delete_env(:pharmacy_app, :service_opts)
+      Application.delete_env(:pharmacy_app, :test_client_fn)
       Application.delete_env(:pharmacy_app, :test_geocoder_fn)
     end)
 
-    # Cache is a global ETS table with a 60s TTL; entries would leak across
-    # tests and satisfy later requests without hitting the client.
+    # Geocode cache is a global ETS table with a TTL; entries would leak
+    # across tests and satisfy later requests without hitting the geocoder.
     if :ets.whereis(:pharmacy_cache) != :undefined, do: :ets.delete_all_objects(:pharmacy_cache)
     :ok
   end
@@ -36,6 +40,18 @@ defmodule PharmacyAppWeb.PharmaciesControllerTest do
   defp put_service_opt(key, value) do
     opts = Application.get_env(:pharmacy_app, :service_opts, [])
     Application.put_env(:pharmacy_app, :service_opts, Keyword.put(opts, key, value))
+  end
+
+  # Adapter-level output per the contract: %Pharmacy{} structs WITHOUT
+  # distance_m — the service computes it from the request origin.
+  defp pharmacy(id, lat, lng) do
+    %PharmacyApp.Pharmacies.Pharmacy{
+      id: id,
+      display_name: "Apotheke",
+      address: "Friedrichstraße 1",
+      lat: lat,
+      lng: lng
+    }
   end
 
   test "forwards client Accept-Language to the upstream" do
@@ -62,17 +78,7 @@ defmodule PharmacyAppWeb.PharmaciesControllerTest do
   end
 
   test "renders 200 with a JSON list of pharmacy maps" do
-    set_client(
-      {:ok,
-       [
-         %Googly.Places.Model.GoogleMapsPlacesV1Place{
-           id: "place-1",
-           display_name: %Googly.Places.Model.GoogleTypeLocalizedText{text: "Apotheke"},
-           formatted_address: "Friedrichstraße 1",
-           location: %Googly.Places.Model.GoogleTypeLatLng{latitude: 52.52, longitude: 13.405}
-         }
-       ]}
-    )
+    set_client({:ok, [pharmacy("place-1", 52.52, 13.405)]})
 
     conn = get(build_conn(), "/api/pharmacies", lat: "52.52", lng: "13.405", radius_m: "1000")
 
@@ -83,7 +89,13 @@ defmodule PharmacyAppWeb.PharmaciesControllerTest do
     assert body["id"] == "place-1"
     assert body["display_name"] == "Apotheke"
     assert body["address"] == "Friedrichstraße 1"
+    # Computed from the request origin even though the fake omits it.
     assert body["distance_m"] >= 0 and body["distance_m"] <= 100
+
+    # Exactly the contract's fields, same key names, nil handling preserved.
+    assert MapSet.new(Map.keys(body)) == MapSet.new(@contract_keys)
+    assert body["open_now"] == nil
+    assert body["opening_hours"] == nil
     refute Map.has_key?(body, "google_place")
   end
 
@@ -99,6 +111,14 @@ defmodule PharmacyAppWeb.PharmaciesControllerTest do
   test "renders 422 for missing params" do
     conn = get(build_conn(), "/api/pharmacies", lng: "13.405")
     assert conn.status == 422
+  end
+
+  test "renders controlled 422 for non-scalar params" do
+    conn = get(build_conn(), "/api/pharmacies", lat: %{a: 1}, lng: "13.405")
+
+    assert conn.status == 422
+    assert %{"errors" => issues} = Jason.decode!(conn.resp_body)
+    assert is_list(issues) and issues != []
   end
 
   test "renders upstream status for client-side Google errors" do
@@ -127,18 +147,7 @@ defmodule PharmacyAppWeb.PharmaciesControllerTest do
 
   test "q geocodes the address then searches around it" do
     set_geocoder({:ok, %{lat: 52.52, lng: 13.405, formatted_address: "Berlin, Germany"}})
-
-    set_client(
-      {:ok,
-       [
-         %Googly.Places.Model.GoogleMapsPlacesV1Place{
-           id: "place-1",
-           display_name: %Googly.Places.Model.GoogleTypeLocalizedText{text: "Apotheke"},
-           formatted_address: "Friedrichstraße 1",
-           location: %Googly.Places.Model.GoogleTypeLatLng{latitude: 52.5215, longitude: 13.405}
-         }
-       ]}
-    )
+    set_client({:ok, [pharmacy("place-1", 52.5215, 13.405)]})
 
     conn = get(build_conn(), "/api/pharmacies", q: "Alexanderplatz, Berlin", radius_m: "1000")
 

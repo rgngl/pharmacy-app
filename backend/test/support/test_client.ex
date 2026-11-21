@@ -1,8 +1,11 @@
 defmodule PharmacyApp.TestClient do
   @moduledoc """
-  Injectable client for transport tests. The test stores a fun under
+  Injectable client for transport tests, following the adapter contract.
+  The test stores a fun under
   `:pharmacy_app, :test_client_fn`; it receives (lat, lng, radius_m, opts)
-  and returns the client contract's results.
+  and returns the client contract's results, i.e. `{:ok, [%Pharmacy{} without
+  distance_m]}` or `{:error, {:upstream, status, msg}} | {:error,
+  :upstream_unavailable}`.
   """
 
   def search_nearby(lat, lng, radius_m, opts \\ []) do

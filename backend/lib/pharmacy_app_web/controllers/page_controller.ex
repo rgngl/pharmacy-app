@@ -5,6 +5,7 @@ defmodule PharmacyAppWeb.PageController do
     formats: [:html]
 
   alias PharmacyApp.Pharmacies.Service
+  alias PharmacyAppWeb.Params
 
   # Minimal page: no shared layout module, render the template standalone.
   plug(:put_layout, false)
@@ -13,59 +14,76 @@ defmodule PharmacyAppWeb.PageController do
   Server-rendered search page. Same param mapping and error mapping as
   `PharmaciesController.index/2`, but renders HTML:
 
-  - no params at all → form only (`:searched` false)
+  - no search input at all → form only (origin `:none`, `:searched` false)
   - `q` (free-form address, when lat/lng are absent) → geocode then search
   - invalid params → 200 with inline per-field errors
   - upstream errors → mirrored 4xx / 502 with a banner
+
+  The template receives the *effective* search as `@search` (a
+  `PharmacyAppWeb.Params` struct: origin mode, clamped radius) and the raw
+  submitted values as `@submitted` only so the form can redisplay them.
   """
   def home(conn, params) do
-    raw = %{
-      "lat" => params["lat"],
-      "lng" => params["lng"],
-      "radius_m" => params["radius_m"],
-      "q" => params["q"]
-    }
+    parsed = Params.parse(params, conn)
+    submitted = raw_input(params)
 
     cond do
-      Enum.all?(Map.values(raw), &is_nil/1) ->
+      parsed.issues != [] ->
+        render(conn,
+          no_params: false,
+          searched: false,
+          submitted: submitted,
+          search: parsed,
+          errors: parsed.issues,
+          banner: nil,
+          resolved: nil,
+          pharmacies: []
+        )
+
+      parsed.origin == :none ->
         render(conn,
           no_params: true,
           searched: false,
-          submitted: raw,
+          submitted: submitted,
+          search: parsed,
           errors: [],
           banner: nil,
           resolved: nil,
           pharmacies: []
         )
 
-      # Free-form address wins only when no explicit coordinates were sent.
-      is_binary(trim(raw["q"])) and is_nil(parse_float(raw["lat"])) and
-          is_nil(parse_float(raw["lng"])) ->
+      parsed.origin == :address ->
         render_outcome(
           conn,
-          raw,
+          submitted,
+          parsed,
           Service.search_by_address(
-            String.trim(raw["q"]),
-            [radius_m: parse_number(raw["radius_m"]), language_code: parse_language(conn)] ++
-              service_opts()
+            parsed.q,
+            [radius_m: parsed.radius_m, language_code: parsed.language_code] ++ service_opts()
           )
         )
 
       true ->
-        render_outcome(conn, raw, Service.search(parse_params(params, conn), service_opts()))
+        render_outcome(
+          conn,
+          submitted,
+          parsed,
+          Service.search(Params.search_params(parsed), service_opts())
+        )
     end
   end
 
   # Uniform render for both flows: the address flow's success carries
   # `%{pharmacies: …, formatted_address: …}`, the coordinate flow's a plain
   # pharmacy list. Error shapes are identical.
-  defp render_outcome(conn, raw, result) do
+  defp render_outcome(conn, submitted, search, result) do
     case result do
       {:ok, %{pharmacies: pharmacies, formatted_address: formatted_address}} ->
         render(conn,
           no_params: false,
           searched: true,
-          submitted: raw,
+          submitted: submitted,
+          search: search,
           errors: [],
           banner: nil,
           resolved: formatted_address,
@@ -76,7 +94,8 @@ defmodule PharmacyAppWeb.PageController do
         render(conn,
           no_params: false,
           searched: true,
-          submitted: raw,
+          submitted: submitted,
+          search: search,
           errors: [],
           banner: nil,
           resolved: nil,
@@ -87,10 +106,11 @@ defmodule PharmacyAppWeb.PageController do
         render(conn,
           no_params: false,
           searched: false,
-          submitted: raw,
+          submitted: submitted,
+          search: search,
           errors: [],
           banner:
-            "Couldn't find an address matching \u201C#{String.trim(raw["q"])}\u201D. Try a more specific address.",
+            "Couldn't find an address matching \u201C#{search.q}\u201D. Try a more specific address.",
           resolved: nil,
           pharmacies: []
         )
@@ -99,7 +119,8 @@ defmodule PharmacyAppWeb.PageController do
         render(conn,
           no_params: false,
           searched: false,
-          submitted: raw,
+          submitted: submitted,
+          search: search,
           errors: issues,
           banner: nil,
           resolved: nil,
@@ -110,12 +131,12 @@ defmodule PharmacyAppWeb.PageController do
       when is_integer(status) and status >= 400 and status < 500 ->
         conn
         |> put_status(status)
-        |> render_upstream_error(raw, status, message)
+        |> render_upstream_error(submitted, search, status, message)
 
       {:error, {:upstream, status, message}} ->
         conn
         |> put_status(502)
-        |> render_upstream_error(raw, status, message)
+        |> render_upstream_error(submitted, search, status, message)
 
       {:error, :upstream_unavailable} ->
         conn
@@ -123,7 +144,8 @@ defmodule PharmacyAppWeb.PageController do
         |> render(
           no_params: false,
           searched: false,
-          submitted: raw,
+          submitted: submitted,
+          search: search,
           errors: [],
           banner: "Upstream unavailable — please try again later.",
           resolved: nil,
@@ -132,11 +154,12 @@ defmodule PharmacyAppWeb.PageController do
     end
   end
 
-  defp render_upstream_error(conn, raw, status, message) do
+  defp render_upstream_error(conn, submitted, search, status, message) do
     render(conn,
       no_params: false,
       searched: false,
-      submitted: raw,
+      submitted: submitted,
+      search: search,
       errors: [],
       banner: "Upstream error (#{status}): #{message}",
       resolved: nil,
@@ -148,58 +171,19 @@ defmodule PharmacyAppWeb.PageController do
   # application config so tests can stub the upstream.
   defp service_opts, do: Application.get_env(:pharmacy_app, :service_opts, [])
 
-  defp trim(nil), do: nil
-
-  defp trim(value) do
-    case String.trim(to_string(value)) do
-      "" -> nil
-      trimmed -> trimmed
-    end
-  end
-
-  defp parse_params(params, conn) do
+  # Raw submitted values, only so the form can redisplay what the user sent.
+  # All parsing, precedence, and clamping live in PharmacyAppWeb.Params;
+  # non-binary values are dropped here because they are never valid input
+  # and must not reach the template's attribute rendering.
+  defp raw_input(params) do
     %{
-      lat: parse_float(params["lat"]),
-      lng: parse_float(params["lng"]),
-      radius_m: parse_number(params["radius_m"]),
-      language_code: parse_language(conn)
+      "lat" => binary_or_nil(params["lat"]),
+      "lng" => binary_or_nil(params["lng"]),
+      "radius_m" => binary_or_nil(params["radius_m"]),
+      "q" => binary_or_nil(params["q"])
     }
   end
 
-  # Mirrors PharmaciesController.parse_language/1.
-  defp parse_language(conn) do
-    case get_req_header(conn, "accept-language") do
-      [header | _] ->
-        tag =
-          header
-          |> String.split(",", parts: 2)
-          |> hd()
-          |> String.split(";", parts: 2)
-          |> hd()
-          |> String.trim()
-
-        if Regex.match?(~r/\A[a-zA-Z]{1,8}(-[a-zA-Z0-9]{1,8})*\z/, tag), do: tag, else: nil
-
-      _ ->
-        nil
-    end
-  end
-
-  defp parse_float(nil), do: nil
-
-  defp parse_float(value) do
-    case Float.parse(to_string(value)) do
-      {f, ""} -> f
-      _ -> :error
-    end
-  end
-
-  defp parse_number(nil), do: nil
-
-  defp parse_number(value) do
-    case Float.parse(to_string(value)) do
-      {f, ""} -> f
-      _ -> :error
-    end
-  end
+  defp binary_or_nil(value) when is_binary(value), do: value
+  defp binary_or_nil(_), do: nil
 end

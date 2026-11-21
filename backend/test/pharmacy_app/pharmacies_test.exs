@@ -2,18 +2,10 @@ defmodule PharmacyApp.PharmaciesTest do
   use ExUnit.Case, async: true
 
   alias PharmacyApp.Pharmacies
+  alias PharmacyApp.Pharmacies.Pharmacy
 
   @berlin {52.52, 13.405}
   @hamburg {53.5511, 9.9937}
-
-  def google_place(lat, lng, name \\ "Apotheke Mitte") do
-    %Googly.Places.Model.GoogleMapsPlacesV1Place{
-      id: "place-1",
-      display_name: %Googly.Places.Model.GoogleTypeLocalizedText{text: name},
-      formatted_address: "Ritterstraße 12, 10969 Berlin",
-      location: %Googly.Places.Model.GoogleTypeLatLng{latitude: lat, longitude: lng}
-    }
-  end
 
   describe "validate_params/1" do
     test "accepts valid bounds and clamps radius" do
@@ -56,6 +48,32 @@ defmodule PharmacyApp.PharmaciesTest do
     end
   end
 
+  describe "validate_options/1" do
+    test "validates radius/language without coordinates" do
+      assert Pharmacies.validate_options(%{radius_m: 300, language_code: "de"}) ==
+               {:ok, %{radius_m: 300, language_code: "de"}}
+
+      assert {:ok, opts} = Pharmacies.validate_options(%{})
+      assert opts == %{radius_m: 1_000, language_code: nil}
+    end
+
+    test "rejects a bad language tag" do
+      assert {:error, issues} = Pharmacies.validate_options(%{language_code: "not a tag!"})
+      assert issues == ["language_code must be a BCP-47 language tag"]
+    end
+  end
+
+  describe "effective_radius/1" do
+    test "clamps to 1..50_000 and defaults on malformed input" do
+      assert Pharmacies.effective_radius(999_999) == 50_000
+      assert Pharmacies.effective_radius(540) == 540
+      assert Pharmacies.effective_radius(0) == 1_000
+      assert Pharmacies.effective_radius(-5) == 1_000
+      assert Pharmacies.effective_radius(nil) == 1_000
+      assert Pharmacies.effective_radius("500") == 1_000
+    end
+  end
+
   describe "haversine_m/4" do
     test "Berlin to Hamburg within 1%" do
       {lat1, lng1} = @berlin
@@ -71,123 +89,9 @@ defmodule PharmacyApp.PharmaciesTest do
     end
   end
 
-  describe "from_google/2" do
-    test "maps Google wire fields to the app struct" do
-      pharmacy = Pharmacies.from_google(google_place(52.5200, 13.4050), @berlin)
-
-      assert pharmacy.id == "place-1"
-      assert pharmacy.display_name == "Apotheke Mitte"
-      assert pharmacy.address == "Ritterstraße 12, 10969 Berlin"
-      assert pharmacy.lat == 52.5200
-      assert pharmacy.lng == 13.4050
-      assert pharmacy.distance_m >= 0
-      assert pharmacy.open_now == nil
-      assert pharmacy.opening_hours == nil
-      # same point => ~0 distance
-      assert pharmacy.distance_m < 10
-    end
-
-    test "maps currentOpeningHours to open_now and weekday descriptions" do
-      place =
-        google_place(52.5200, 13.4050)
-        |> struct!(current_opening_hours: opening_hours())
-
-      pharmacy = Pharmacies.from_google(place, @berlin)
-
-      assert pharmacy.open_now == true
-      assert pharmacy.opening_hours == ["Mon: 08:00–20:00", "Tue: 08:00–20:00"]
-    end
-
-    defp opening_hours do
-      %Googly.Places.Model.GoogleMapsPlacesV1PlaceOpeningHours{
-        open_now: true,
-        weekday_descriptions: ["Mon: 08:00–20:00", "Tue: 08:00–20:00"]
-      }
-    end
-
-    test "maps national phone number and derives closes_at while open" do
-      place =
-        google_place(52.5200, 13.4050)
-        |> struct!(
-          national_phone_number: "+49 30 123456",
-          # nextCloseTime decodes to UTC ("14:00Z" for a 16:00+02:00 close);
-          # the offset restores place-local wall time.
-          utc_offset_minutes: 120,
-          current_opening_hours: %{
-            opening_hours()
-            | next_close_time: DateTime.from_iso8601("2026-11-21T16:00:00+02:00") |> elem(1)
-          }
-        )
-
-      pharmacy = Pharmacies.from_google(place, @berlin)
-
-      assert pharmacy.phone_number == "+49 30 123456"
-      assert pharmacy.closes_at == "16:00"
-    end
-
-    test "closes_at is nil for a closed place and for open-ended hours" do
-      closed =
-        google_place(52.5200, 13.4050)
-        |> struct!(
-          current_opening_hours: %{
-            opening_hours()
-            | open_now: false,
-              next_close_time: DateTime.from_iso8601("2026-11-22T09:00:00+02:00") |> elem(1)
-          }
-        )
-
-      assert Pharmacies.from_google(closed, @berlin).closes_at == nil
-
-      # 24/7: open, but the close period is absent.
-      always_open =
-        google_place(52.5200, 13.4050)
-        |> struct!(current_opening_hours: opening_hours())
-
-      assert Pharmacies.from_google(always_open, @berlin).closes_at == nil
-    end
-
-    test "returns nil and skips distance computation when location is missing" do
-      # Google omits `location` unless it is requested in the field mask.
-      place = %Googly.Places.Model.GoogleMapsPlacesV1Place{id: "place-no-loc"}
-
-      assert Pharmacies.from_google(place, @berlin) == nil
-    end
-
-    test "computes distance in metres" do
-      pharmacy = Pharmacies.from_google(google_place(elem(@hamburg, 0), elem(@hamburg, 1)), @berlin)
-      assert pharmacy.distance_m > 252_000
-    end
-  end
-
-  describe "put_walk/2" do
-    defp summary(legs) do
-      %Googly.Places.Model.GoogleMapsPlacesV1RoutingSummary{legs: legs}
-    end
-
-    test "attaches walking duration and distance from the first leg" do
-      leg = %Googly.Places.Model.GoogleMapsPlacesV1RoutingSummaryLeg{
-        distance_meters: 540,
-        duration: "726s"
-      }
-
-      pharmacy = pharmacy(300)
-      walked = Pharmacies.put_walk(pharmacy, summary([leg]))
-
-      assert walked.walk_duration_s == 726
-      assert walked.walk_distance_m == 540
-      assert walked.distance_m == 300
-    end
-
-    test "no-op on nil summary or empty legs" do
-      pharmacy = pharmacy(300)
-      assert Pharmacies.put_walk(pharmacy, nil) == pharmacy
-      assert Pharmacies.put_walk(pharmacy, summary([])) == pharmacy
-    end
-  end
-
   describe "filter/2 and sort/1" do
     def pharmacy(m) do
-      %Pharmacies{
+      %Pharmacy{
         id: "p",
         display_name: "P",
         address: nil,
@@ -204,7 +108,10 @@ defmodule PharmacyApp.PharmaciesTest do
     end
 
     test "sort orders ascending" do
-      assert Enum.map(Pharmacies.sort([pharmacy(300), pharmacy(100), pharmacy(200)]), & &1.distance_m) ==
+      assert Enum.map(
+               Pharmacies.sort([pharmacy(300), pharmacy(100), pharmacy(200)]),
+               & &1.distance_m
+             ) ==
                [100, 200, 300]
     end
 

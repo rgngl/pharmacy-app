@@ -1,7 +1,8 @@
 defmodule PharmacyApp.Pharmacies.Service do
   @moduledoc """
-  Orchestration only: validate → cache → client → map/filter/sort → cache.
-  No business rules or HTTP here.
+  Orchestration only: validate → geocode cache → provider call →
+  distance/filter/sort. No business rules or HTTP here; all provider
+  translation lives in `PlacesAdapter`.
   """
 
   alias PharmacyApp.Pharmacies
@@ -9,25 +10,26 @@ defmodule PharmacyApp.Pharmacies.Service do
 
   @doc """
   `opts` accepts `:client` (default `PlacesAdapter`) and `:cache`
-  (default `Cache`). Client is called with
+  (default `Cache`). The client follows the adapter contract: called with
   `(lat, lng, radius_m, [language_code: code])` and returns
-  `{:ok, places}` or
+  `{:ok, [%Pharmacy{} without distance_m]}` or
   `{:error, {:upstream, status, msg}} | {:error, :upstream_unavailable}`.
-  Cache must expose `get(key)` and `put(key, value)`.
+  Results are never cached across requests: distance, filtering, and
+  sorting are origin-dependent, and the provider query already ran with
+  this request's exact origin and radius.
   """
   def search(params, opts \\ []) do
     client = Keyword.get(opts, :client, PlacesAdapter)
-    cache = Keyword.get(opts, :cache, Cache)
 
     case Pharmacies.validate_params(params) do
       {:error, issues} -> {:error, {:invalid_params, issues}}
-      {:ok, validated} -> cached_or_fetch(validated, client, cache)
+      {:ok, validated} -> run(validated, client)
     end
   end
 
   @doc """
-  Resolves a free-form address to coordinates (geocode result cached), then
-  runs the same pipeline as `search/2`.
+  Resolves a free-form address to coordinates (geocode result cached),
+  then runs the same pipeline as `search/2`.
 
   `opts` accepts everything `search/2` does, plus:
 
@@ -37,6 +39,10 @@ defmodule PharmacyApp.Pharmacies.Service do
     or the upstream error shapes
   * `:radius_m` / `:language_code` — forwarded into the downstream search
 
+  Radius and language are validated before the geocode (fail fast, no
+  upstream call); the resolved coordinates are validated afterwards.
+  Results are not cached — only the geocode is.
+
   Returns `{:ok, %{lat: float, lng: float, formatted_address: String.t,
   pharmacies: [%Pharmacy{}]}}`, `{:error, :address_not_found}`, or the
   `search/2` error shapes.
@@ -44,18 +50,12 @@ defmodule PharmacyApp.Pharmacies.Service do
   def search_by_address(address, opts \\ []) do
     geocoder = Keyword.get(opts, :geocoder, PlacesAdapter)
     cache = Keyword.get(opts, :cache, Cache)
+    client = Keyword.get(opts, :client, PlacesAdapter)
 
-    with {:ok, validated} <- validate_downstream(opts),
-         {:ok, resolved} <- cached_geocode(geocoder, cache, address, validated.language_code) do
-      case search(
-             %{
-               lat: resolved.lat,
-               lng: resolved.lng,
-               radius_m: validated.radius_m,
-               language_code: validated.language_code
-             },
-             opts
-           ) do
+    with {:ok, search_opts} <- validate_opts(opts),
+         {:ok, resolved} <- cached_geocode(geocoder, cache, address, search_opts.language_code),
+         {:ok, validated} <- validate_resolved(resolved, search_opts) do
+      case run(validated, client) do
         {:ok, pharmacies} ->
           {:ok, Map.put(resolved, :pharmacies, pharmacies)}
 
@@ -66,18 +66,46 @@ defmodule PharmacyApp.Pharmacies.Service do
   end
 
   # Validates radius/language before any upstream call so bad query params
-  # fail fast without spending a Text Search. lat/lng are placeholder-checked
-  # here and replaced by the geocoded coordinates.
-  defp validate_downstream(opts) do
-    case Pharmacies.validate_params(%{
-           lat: 0.0,
-           lng: 0.0,
+  # fail fast without spending a Text Search. Coordinates are not involved
+  # here; they are validated separately once geocoded (validate_resolved/2).
+  defp validate_opts(opts) do
+    case Pharmacies.validate_options(%{
            radius_m: Keyword.get(opts, :radius_m),
            language_code: Keyword.get(opts, :language_code)
+         }) do
+      {:ok, search_opts} -> {:ok, search_opts}
+      {:error, issues} -> {:error, {:invalid_params, issues}}
+    end
+  end
+
+  defp validate_resolved(resolved, search_opts) do
+    case Pharmacies.validate_params(%{
+           lat: resolved.lat,
+           lng: resolved.lng,
+           radius_m: search_opts.radius_m,
+           language_code: search_opts.language_code
          }) do
       {:ok, validated} -> {:ok, validated}
       {:error, issues} -> {:error, {:invalid_params, issues}}
     end
+  end
+
+  defp run(validated, client) do
+    with {:ok, pharmacies} <- call_client(client, validated) do
+      point = {validated.lat, validated.lng}
+
+      {:ok,
+       pharmacies
+       |> Enum.map(&fill_distance(&1, point))
+       |> Pharmacies.filter(validated.radius_m)
+       |> Pharmacies.sort()}
+    end
+  end
+
+  # The provider returns origin-independent pharmacies; the straight-line
+  # distance to this request's exact origin is computed here, per request.
+  defp fill_distance(pharmacy, {lat, lng}) do
+    %{pharmacy | distance_m: Pharmacies.haversine_m(lat, lng, pharmacy.lat, pharmacy.lng)}
   end
 
   defp cached_geocode(geocoder, cache, address, language_code) do
@@ -98,48 +126,6 @@ defmodule PharmacyApp.Pharmacies.Service do
         end
     end
   end
-
-  defp cached_or_fetch(validated, client, cache) do
-    key = Cache.key(validated.lat, validated.lng, validated.radius_m, validated.language_code)
-
-    case cache.get(key) do
-      {:ok, value} -> {:ok, value}
-      _ -> miss(validated, client, cache)
-    end
-  end
-
-  defp miss(validated, client, cache) do
-    with {:ok, client_result} <- call_client(client, validated),
-         point = {validated.lat, validated.lng},
-         {google_places, summaries} = split_result(client_result),
-         pharmacies <-
-           google_places
-           |> Enum.zip(summaries)
-           |> Enum.map(fn {place, summary} ->
-             place |> Pharmacies.from_google(point) |> Pharmacies.put_walk(summary)
-           end)
-           |> Enum.reject(&is_nil/1)
-           |> Pharmacies.filter(validated.radius_m)
-           |> Pharmacies.sort() do
-      cache.put(
-        Cache.key(validated.lat, validated.lng, validated.radius_m, validated.language_code),
-        pharmacies
-      )
-
-      {:ok, pharmacies}
-    end
-  end
-
-  # The adapter returns `{:ok, %{places:, routing_summaries:}}`; plain
-  # lists are still accepted so injected fake clients need no summaries.
-  # Summaries are padded to the place count: Enum.zip would otherwise
-  # truncate when the upstream returns fewer (or a fake returns none).
-  defp split_result(%{places: places, routing_summaries: summaries}) do
-    places = places || []
-    {places, Enum.take(summaries || [], length(places)) ++ List.duplicate(nil, length(places))}
-  end
-
-  defp split_result(places) when is_list(places), do: {places, List.duplicate(nil, length(places))}
 
   defp call_client(client, validated) when is_function(client, 4),
     do:

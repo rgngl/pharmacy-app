@@ -4,7 +4,9 @@ defmodule PharmacyAppWeb.PharmaciesController do
   use Phoenix.Controller,
     formats: [:json]
 
+  alias PharmacyApp.Pharmacies.Pharmacy
   alias PharmacyApp.Pharmacies.Service
+  alias PharmacyAppWeb.Params
 
   @doc """
   Error rendering policy for upstream errors: any Google status that is
@@ -12,119 +14,93 @@ defmodule PharmacyAppWeb.PharmaciesController do
   unexpected) renders 502.
   """
   def index(conn, params) do
-    case route(conn, params) do
-      {:ok, pharmacies} ->
-        json(conn, Enum.map(pharmacies, &Map.from_struct/1))
+    case Params.parse(params, conn) do
+      %Params{issues: []} = parsed ->
+        respond(conn, route(conn, parsed))
 
-      {:error, {:invalid_params, issues}} ->
+      %Params{issues: issues} ->
         conn
         |> put_status(422)
         |> json(%{errors: issues})
-
-      {:error, :address_not_found} ->
-        conn
-        |> put_status(404)
-        |> json(%{errors: ["address not found"]})
-
-      {:error, {:upstream, status, message}}
-      when is_integer(status) and status >= 400 and status < 500 ->
-        conn
-        |> put_status(status)
-        |> json(%{errors: [%{status: status, message: message}]})
-
-      {:error, {:upstream, status, message}} ->
-        conn
-        |> put_status(502)
-        |> json(%{errors: [%{status: status, message: message}]})
-
-      {:error, :upstream_unavailable} ->
-        conn
-        |> put_status(502)
-        |> json(%{errors: ["upstream unavailable"]})
     end
   end
 
   # `q` (free-form address) is used only when lat/lng are absent; explicit
-  # coordinates always win.
-  defp route(conn, params) do
-    q = trim(params["q"])
-    lat = parse_float(params["lat"])
-    lng = parse_float(params["lng"])
-
-    cond do
-      is_binary(q) and lat == nil and lng == nil ->
-        case Service.search_by_address(
-               q,
-               [radius_m: parse_number(params["radius_m"]), language_code: parse_language(conn)] ++
-                 service_opts()
-             ) do
-          # Same JSON shape as the coordinate path: a plain pharmacy list.
-          {:ok, %{pharmacies: pharmacies}} -> {:ok, pharmacies}
-          other -> other
-        end
-
-      true ->
-        Service.search(parse_params(params, conn), service_opts())
+  # coordinates always win. Precedence lives in PharmacyAppWeb.Params; for a
+  # `:none` origin, search_params/1 sends nil coordinates so the domain
+  # answers the documented missing-coordinates 422 before any upstream call.
+  defp route(_conn, %Params{origin: :address} = parsed) do
+    case Service.search_by_address(
+           parsed.q,
+           [radius_m: parsed.radius_m, language_code: parsed.language_code] ++ service_opts()
+         ) do
+      # Same JSON shape as the coordinate path: a plain pharmacy list.
+      {:ok, %{pharmacies: pharmacies}} -> {:ok, pharmacies}
+      other -> other
     end
   end
 
-  defp trim(nil), do: nil
+  defp route(_conn, %Params{origin: origin} = parsed) when origin in [:coords, :none] do
+    Service.search(Params.search_params(parsed), service_opts())
+  end
 
-  defp trim(value) do
-    case String.trim(to_string(value)) do
-      "" -> nil
-      trimmed -> trimmed
-    end
+  defp respond(conn, {:ok, pharmacies}) do
+    json(conn, Enum.map(pharmacies, &serialize/1))
+  end
+
+  defp respond(conn, {:error, {:invalid_params, issues}}) do
+    conn
+    |> put_status(422)
+    |> json(%{errors: issues})
+  end
+
+  defp respond(conn, {:error, :address_not_found}) do
+    conn
+    |> put_status(404)
+    |> json(%{errors: ["address not found"]})
+  end
+
+  defp respond(conn, {:error, {:upstream, status, message}})
+       when is_integer(status) and status >= 400 and status < 500 do
+    conn
+    |> put_status(status)
+    |> json(%{errors: [%{status: status, message: message}]})
+  end
+
+  defp respond(conn, {:error, {:upstream, status, message}}) do
+    conn
+    |> put_status(502)
+    |> json(%{errors: [%{status: status, message: message}]})
+  end
+
+  defp respond(conn, {:error, :upstream_unavailable}) do
+    conn
+    |> put_status(502)
+    |> json(%{errors: ["upstream unavailable"]})
+  end
+
+  # Explicit serializer: the API contract lists exactly these fields with
+  # this nil handling (identical to the previous blanket struct-to-map
+  # output, so no client-visible field disappears), but new internal fields
+  # can no longer leak into the response by default.
+  defp serialize(%Pharmacy{} = pharmacy) do
+    %{
+      id: pharmacy.id,
+      display_name: pharmacy.display_name,
+      address: pharmacy.address,
+      lat: pharmacy.lat,
+      lng: pharmacy.lng,
+      distance_m: pharmacy.distance_m,
+      open_now: pharmacy.open_now,
+      opening_hours: pharmacy.opening_hours,
+      closes_at: pharmacy.closes_at,
+      phone_number: pharmacy.phone_number,
+      walk_distance_m: pharmacy.walk_distance_m,
+      walk_duration_s: pharmacy.walk_duration_s
+    }
   end
 
   # Extra opts (e.g. injected fake clients) come from application config so
   # tests can stub the upstream without network access.
   defp service_opts, do: Application.get_env(:pharmacy_app, :service_opts, [])
-
-  defp parse_params(params, conn) do
-    %{
-      lat: parse_float(params["lat"]),
-      lng: parse_float(params["lng"]),
-      radius_m: parse_number(params["radius_m"]),
-      language_code: parse_language(conn)
-    }
-  end
-
-  # First Accept-Language tag wins; `*` or malformed tags fall back to the
-  # upstream default (nil). Quality parameters after `;` are ignored.
-  defp parse_language(conn) do
-    case get_req_header(conn, "accept-language") do
-      [header | _] ->
-        tag =
-          header
-          |> String.split(",", parts: 2)
-          |> hd()
-          |> String.split(";", parts: 2)
-          |> hd()
-          |> String.trim()
-
-        if Regex.match?(~r/\A[a-zA-Z]{1,8}(-[a-zA-Z0-9]{1,8})*\z/, tag), do: tag, else: nil
-
-      _ ->
-        nil
-    end
-  end
-
-  defp parse_float(nil), do: nil
-
-  defp parse_float(value) do
-    case Float.parse(to_string(value)) do
-      {f, ""} -> f
-      _ -> :error
-    end
-  end
-
-  defp parse_number(nil), do: nil
-
-  defp parse_number(value) do
-    case Float.parse(to_string(value)) do
-      {f, ""} -> f
-      _ -> :error
-    end
-  end
 end

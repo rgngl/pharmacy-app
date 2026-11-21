@@ -44,29 +44,25 @@
               <.icon name="locate" />
               Use my location
             </button>
+            <button type="submit" class="btn btn-primary">Search</button>
           </form>
 
-          <%= if (is_binary(@submitted["lat"]) and @submitted["lat"] != "" and
-                is_binary(@submitted["lng"]) and @submitted["lng"] != "") or
-                (is_binary(@submitted["q"]) and @submitted["q"] != "") do %>
-            <% base =
-              if is_binary(@submitted["q"]) and @submitted["q"] != "" do
-                %{"q" => @submitted["q"]}
-              else
-                %{"lat" => @submitted["lat"] || "", "lng" => @submitted["lng"] || ""}
-              end %>
+          <% # Chips follow the effective search mode from the parser, not the
+             # raw submitted values: coordinate searches keep lat/lng and drop
+             # q, address searches keep q and drop the coordinates. %>
+          <%= if chip_base = PharmacyAppWeb.PageHTML.chip_query(@search) do %>
             <div class="filter-row">
               <span class="radius-label">Radius:</span>
               <%= for {label, m} <- [{"500 m", 500}, {"1 km", 1000}, {"2 km", 2000}, {"5 km", 5000}] do %>
                 <.chip
                   label={label}
-                  href={"/?" <> URI.encode_query(Map.put(base, "radius_m", m))}
-                  active={PharmacyAppWeb.PageHTML.active_radius?(@submitted, m)}
+                  href={"/?" <> URI.encode_query(Map.put(chip_base, "radius_m", m))}
+                  active={@search.radius_m == m}
                 />
               <% end %>
               <%= if @searched and @pharmacies != [] do %>
                 <span class="count">
-                  Showing <strong>{length(@pharmacies)}</strong> pharmacies within {PharmacyAppWeb.PageHTML.radius_text(@submitted)}
+                  Showing <strong>{length(@pharmacies)}</strong> pharmacies within {PharmacyAppWeb.PageHTML.radius_text(@search)}
                 </span>
               <% end %>
             </div>
@@ -98,16 +94,22 @@
             Enter an address above, or use your location, to find nearby pharmacies.
           </div>
         <% else %>
+          <%= if is_binary(@resolved) and @resolved != "" do %>
+            <p class="resolved">Showing pharmacies near {@resolved}</p>
+          <% end %>
+
           <%= if @searched do %>
             <%= if @pharmacies == [] do %>
               <div class="empty">
-                No pharmacies found within {PharmacyAppWeb.PageHTML.radius_text(@submitted)}.
+                No pharmacies found within {PharmacyAppWeb.PageHTML.radius_text(@search)}.
               </div>
             <% else %>
               <%= for p <- @pharmacies do %>
                 <.pharmacy_card pharmacy={p} />
               <% end %>
             <% end %>
+
+            <p class="attribution" translate="no">Search results by Google Maps</p>
           <% end %>
         <% end %>
       </main>

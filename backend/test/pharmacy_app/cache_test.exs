@@ -13,33 +13,39 @@ defmodule PharmacyApp.Pharmacies.CacheTest do
   end
 
   test "put/get round trip" do
-    key = Cache.key(10.5, 20.5, 300)
-    :ok = Cache.put(key, ["a", "b"])
-    assert Cache.get(key) == {:ok, ["a", "b"]}
+    key = Cache.geocode_key("Hauptstr. 5")
+    :ok = Cache.put(key, %{lat: 52.5, lng: 13.4})
+    assert Cache.get(key) == {:ok, %{lat: 52.5, lng: 13.4}}
   end
 
   test "miss for unseen key" do
-    assert Cache.get(Cache.key(1.0, 2.0, 100)) == :miss
+    assert Cache.get(Cache.geocode_key("nowhere")) == :miss
   end
 
   test "ttl expiry: expired entries read as miss" do
-    key = Cache.key(5.0, 5.0, 100)
+    key = Cache.geocode_key("A")
     Cache.put(key, :value, 1)
     Process.sleep(5)
     assert Cache.get(key) == :miss
   end
 
-  test "eviction sweep removes expired entries" do
-    key = Cache.key(6.0, 6.0, 100)
-    Cache.put(key, :value, 5_000)
+  # The sweep must physically delete expired rows; a get/1 miss alone
+  # would pass even if the GenServer never removed them (get treats an
+  # expired row as a miss regardless). Compare table contents instead.
+  test "eviction sweep deletes expired entries" do
+    fresh_key = Cache.geocode_key("fresh")
+    stale_key = Cache.geocode_key("stale")
+    Cache.put(fresh_key, :value, 5_000)
 
-    now = System.system_time(:millisecond)
-    :ets.insert(:pharmacy_cache, {Cache.key(7.0, 7.0, 100), :stale, now - 10_000})
+    now = System.monotonic_time(:millisecond)
+    :ets.insert(:pharmacy_cache, {stale_key, :stale, now - 10_000})
 
-    Process.sleep(350)
+    # Test env sweep interval is 200 ms.
+    Process.sleep(500)
 
-    assert Cache.get(Cache.key(7.0, 7.0, 100)) == :miss
     # not yet expired
-    assert Cache.get(key) == {:ok, :value}
+    assert Cache.get(fresh_key) == {:ok, :value}
+    # physically removed from the table, not just read as a miss
+    assert :ets.lookup(:pharmacy_cache, stale_key) == []
   end
 end

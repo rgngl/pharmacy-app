@@ -8,7 +8,7 @@ defmodule PharmacyAppWeb.Components do
 
   use Phoenix.Component
 
-  alias PharmacyApp.Pharmacies
+  alias PharmacyApp.Pharmacies.Pharmacy
 
   # -- Stylesheet -----------------------------------------------------------
 
@@ -247,6 +247,16 @@ defmodule PharmacyAppWeb.Components do
         color: var(--muted);
         text-align: center;
       }
+      .resolved {
+        color: var(--muted);
+        margin: 0 0 1rem;
+        font-size: 0.9rem;
+      }
+      .attribution {
+        color: var(--muted);
+        font-size: 0.8rem;
+        margin-top: 1.5rem;
+      }
       .hidden { display: none; }
     </style>
     """
@@ -259,8 +269,8 @@ defmodule PharmacyAppWeb.Components do
   @doc """
   Inline SVG icon. `name` is one of #{inspect(Enum.map(@icon_names, &to_string/1))}.
   """
-  attr :name, :string, required: true, values: Enum.map(@icon_names, &to_string/1)
-  attr :size, :integer, default: 17
+  attr(:name, :string, required: true, values: Enum.map(@icon_names, &to_string/1))
+  attr(:size, :integer, default: 17)
 
   def icon(assigns) do
     ~H"""
@@ -285,16 +295,19 @@ defmodule PharmacyAppWeb.Components do
   defp icon_path(name) when is_binary(name), do: icon_path(String.to_existing_atom(name))
 
   defp icon_path(:pin),
-    do: ~S(<path d="M20 10c0 6-8 12-8 12s-8-6-8-12a8 8 0 0 1 16 0Z" /><circle cx="12" cy="10" r="3" />)
+    do:
+      ~S(<path d="M20 10c0 6-8 12-8 12s-8-6-8-12a8 8 0 0 1 16 0Z" /><circle cx="12" cy="10" r="3" />)
 
   defp icon_path(:locate),
-    do: ~S(<path d="M12 2v3M12 19v3M4.9 4.9l2.1 2.1M17 17l2.1 2.1M2 12h3M19 12h3M4.9 19.1 7 17M17 7l2.1-2.1" /><circle cx="12" cy="12" r="4" />)
+    do:
+      ~S(<path d="M12 2v3M12 19v3M4.9 4.9l2.1 2.1M17 17l2.1 2.1M2 12h3M19 12h3M4.9 19.1 7 17M17 7l2.1-2.1" /><circle cx="12" cy="12" r="4" />)
 
   defp icon_path(:map),
     do: ~S(<path d="M9 4 3 6v14l6-2 6 2 6-2V4l-6 2-6-2Z" /><path d="M9 4v14M15 6v14" />)
 
   defp icon_path(:phone),
-    do: ~S(<path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72c.13.96.36 1.9.7 2.81a2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45c.91.34 1.85.57 2.81.7A2 2 0 0 1 22 16.92Z" />)
+    do:
+      ~S(<path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72c.13.96.36 1.9.7 2.81a2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45c.91.34 1.85.57 2.81.7A2 2 0 0 1 22 16.92Z" />)
 
   defp icon_path(:chevron), do: ~S(<path d="m6 9 6 6 6-6" />)
 
@@ -305,7 +318,10 @@ defmodule PharmacyAppWeb.Components do
   decimal ("1.2 km").
   """
   def format_distance(m) when is_number(m) and m < 1000, do: "#{round(m)} m"
-  def format_distance(m) when is_number(m), do: :erlang.float_to_binary(m / 1000, decimals: 1) <> " km"
+
+  def format_distance(m) when is_number(m),
+    do: :erlang.float_to_binary(m / 1000, decimals: 1) <> " km"
+
   def format_distance(nil), do: ""
 
   @doc """
@@ -323,9 +339,9 @@ defmodule PharmacyAppWeb.Components do
   @doc """
   Radius chip: a styled link, `active` marks the value currently in effect.
   """
-  attr :label, :string, required: true
-  attr :href, :string, required: true
-  attr :active, :boolean, default: false
+  attr(:label, :string, required: true)
+  attr(:href, :string, required: true)
+  attr(:active, :boolean, default: false)
 
   def chip(assigns) do
     ~H"""
@@ -339,7 +355,7 @@ defmodule PharmacyAppWeb.Components do
   Distance pill: "919 m • ~11 min walk". Walk part omitted without a
   routing summary.
   """
-  attr :pharmacy, Pharmacies, required: true
+  attr(:pharmacy, Pharmacy, required: true)
 
   def distance_pill(assigns) do
     ~H"""
@@ -357,8 +373,8 @@ defmodule PharmacyAppWeb.Components do
   Open/closed status pill: "Open until 16:00" (green), "Open now" (green),
   "Closed" (red), or "Hours unavailable" (neutral) when hours are unknown.
   """
-  attr :open_now, :boolean, required: true
-  attr :closes_at, :string, default: nil
+  attr(:open_now, :boolean, required: true)
+  attr(:closes_at, :string, default: nil)
 
   def status_pill(assigns) do
     ~H"""
@@ -378,7 +394,7 @@ defmodule PharmacyAppWeb.Components do
   @doc """
   Collapsible "View all hours" block; renders nothing without hours.
   """
-  attr :hours, :list, required: true
+  attr(:hours, :list, required: true)
 
   def hours_details(assigns) do
     ~H"""
@@ -402,9 +418,9 @@ defmodule PharmacyAppWeb.Components do
   Card actions: Get Directions (Google Maps deep link, new tab) plus an
   outlined Call button when the pharmacy has a phone number.
   """
-  attr :lat, :float, required: true
-  attr :lng, :float, required: true
-  attr :phone, :string, default: nil
+  attr(:lat, :float, required: true)
+  attr(:lng, :float, required: true)
+  attr(:phone, :string, default: nil)
 
   def card_actions(assigns) do
     ~H"""
@@ -434,7 +450,7 @@ defmodule PharmacyAppWeb.Components do
   One pharmacy result card: name, distance/walk pill, address, hours row,
   actions.
   """
-  attr :pharmacy, Pharmacies, required: true
+  attr(:pharmacy, Pharmacy, required: true)
 
   def pharmacy_card(assigns) do
     ~H"""

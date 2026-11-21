@@ -1,7 +1,11 @@
 defmodule PharmacyApp.Pharmacies.Cache do
   @moduledoc """
-  Default cache backend: a public ETS table with a GenServer that sweeps
-  expired entries. Safe to start as a supervised child.
+  Default cache backend for geocode results: a public ETS table with a
+  GenServer that sweeps expired entries. Safe to start as a supervised
+  child. Nearby results are never cached here — distance, filtering, and
+  sorting are origin-dependent — so the only key is `geocode_key/2`.
+  Expiry uses `System.monotonic_time(:millisecond)` so entries do not
+  survive wall-clock changes.
   """
   use GenServer
 
@@ -19,17 +23,6 @@ defmodule PharmacyApp.Pharmacies.Cache do
 
   def start_link do
     GenServer.start_link(__MODULE__, [], name: __MODULE__)
-  end
-
-  @doc """
-  Key: a ~100m lat/lng grid cell plus a radius bucket and language tag.
-  The language is part of the key because opening hours are returned as
-  pre-formatted text in the requested locale. Walking times are computed
-  from the exact request coordinates; within a cell they may be from a
-  point up to ~80 m from the next caller's.
-  """
-  def key(lat, lng, radius_m, language \\ nil) do
-    {round(lat / 0.001), round(lng / 0.001), round(radius_m / 100), language}
   end
 
   @doc """
@@ -82,5 +75,5 @@ defmodule PharmacyApp.Pharmacies.Cache do
     {:noreply, state}
   end
 
-  defp now_ms, do: System.system_time(:millisecond)
+  defp now_ms, do: System.monotonic_time(:millisecond)
 end
