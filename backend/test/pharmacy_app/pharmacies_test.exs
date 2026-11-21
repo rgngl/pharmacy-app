@@ -105,6 +105,47 @@ defmodule PharmacyApp.PharmaciesTest do
       }
     end
 
+    test "maps national phone number and derives closes_at while open" do
+      place =
+        google_place(52.5200, 13.4050)
+        |> struct!(
+          national_phone_number: "+49 30 123456",
+          # nextCloseTime decodes to UTC ("14:00Z" for a 16:00+02:00 close);
+          # the offset restores place-local wall time.
+          utc_offset_minutes: 120,
+          current_opening_hours: %{
+            opening_hours()
+            | next_close_time: DateTime.from_iso8601("2026-11-21T16:00:00+02:00") |> elem(1)
+          }
+        )
+
+      pharmacy = Pharmacies.from_google(place, @berlin)
+
+      assert pharmacy.phone_number == "+49 30 123456"
+      assert pharmacy.closes_at == "16:00"
+    end
+
+    test "closes_at is nil for a closed place and for open-ended hours" do
+      closed =
+        google_place(52.5200, 13.4050)
+        |> struct!(
+          current_opening_hours: %{
+            opening_hours()
+            | open_now: false,
+              next_close_time: DateTime.from_iso8601("2026-11-22T09:00:00+02:00") |> elem(1)
+          }
+        )
+
+      assert Pharmacies.from_google(closed, @berlin).closes_at == nil
+
+      # 24/7: open, but the close period is absent.
+      always_open =
+        google_place(52.5200, 13.4050)
+        |> struct!(current_opening_hours: opening_hours())
+
+      assert Pharmacies.from_google(always_open, @berlin).closes_at == nil
+    end
+
     test "returns nil and skips distance computation when location is missing" do
       # Google omits `location` unless it is requested in the field mask.
       place = %Googly.Places.Model.GoogleMapsPlacesV1Place{id: "place-no-loc"}

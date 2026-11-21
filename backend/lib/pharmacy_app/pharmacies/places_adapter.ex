@@ -96,7 +96,7 @@ defmodule PharmacyApp.Pharmacies.PlacesAdapter do
     }
 
     field_mask =
-      "places.id,places.displayName,places.formattedAddress,places.location,places.currentOpeningHours,routingSummaries"
+      "places.id,places.displayName,places.formattedAddress,places.location,places.currentOpeningHours,places.nationalPhoneNumber,places.utcOffsetMinutes,routingSummaries"
 
     case Googly.Places.Places.search_nearby(
            body: body,

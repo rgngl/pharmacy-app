@@ -12,6 +12,8 @@ defmodule PharmacyApp.Pharmacies do
     :distance_m,
     :open_now,
     :opening_hours,
+    :closes_at,
+    :phone_number,
     :walk_distance_m,
     :walk_duration_s
   ]
@@ -25,6 +27,12 @@ defmodule PharmacyApp.Pharmacies do
           distance_m: number(),
           open_now: boolean() | nil,
           opening_hours: [String.t()] | nil,
+          # Place-local "HH:MM" the pharmacy closes at, from
+          # currentOpeningHours.nextCloseTime; nil when closed, hours
+          # unknown, or open-ended (e.g. 24/7).
+          closes_at: String.t() | nil,
+          # National-format phone number as returned by Google.
+          phone_number: String.t() | nil,
           # Pedestrian path to the search origin, from Google routing
           # summaries; nil when no summary was returned.
           walk_distance_m: number() | nil,
@@ -96,7 +104,9 @@ defmodule PharmacyApp.Pharmacies do
 
   `:open_now` and `:opening_hours` come from `currentOpeningHours`
   (next seven days incl. special hours); both are nil when Google
-  returned no hours for the place.
+  returned no hours for the place. `:closes_at` is derived from
+  `nextCloseTime` (only populated while the place is open) and formatted
+  place-local as "HH:MM".
   """
   def from_google(
         %Googly.Places.Model.GoogleMapsPlacesV1Place{} = place,
@@ -118,10 +128,34 @@ defmodule PharmacyApp.Pharmacies do
         lng: lng,
         distance_m: haversine_m(user_lat, user_lng, lat, lng),
         open_now: hours && hours.open_now,
-        opening_hours: hours && hours.weekday_descriptions
+        opening_hours: hours && hours.weekday_descriptions,
+        closes_at: closes_at(hours, place.utc_offset_minutes),
+        phone_number: place.national_phone_number
       }
     end
   end
+
+  # "Open until HH:MM" for the results page. nextCloseTime is only set
+  # while the place is open, so a closed place (or 24/7, where the close
+  # period is absent) yields nil. The vendored client decodes nextCloseTime
+  # with DateTime.from_iso8601, which normalizes to UTC, so shift by the
+  # place's utcOffsetMinutes to recover the place-local wall clock.
+  defp closes_at(nil, _offset), do: nil
+
+  defp closes_at(
+         %Googly.Places.Model.GoogleMapsPlacesV1PlaceOpeningHours{
+           open_now: true,
+           next_close_time: %DateTime{} = dt
+         },
+         offset_minutes
+       )
+       when is_integer(dt.hour) and is_integer(dt.minute) and is_integer(offset_minutes) do
+    local = DateTime.add(dt, offset_minutes * 60, :second)
+
+    :io_lib.format("~2..0B:~2..0B", [local.hour, local.minute]) |> IO.iodata_to_binary()
+  end
+
+  defp closes_at(_, _), do: nil
 
   @doc """
   Attaches pedestrian-path distance/duration from the place's routing
