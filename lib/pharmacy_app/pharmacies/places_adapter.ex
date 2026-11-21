@@ -37,7 +37,6 @@ defmodule PharmacyApp.Pharmacies.PlacesAdapter do
            req: [headers: [{"x-goog-fieldmask", field_mask}]]
          ) do
       {:ok, %{places: places}} -> {:ok, places || []}
-      {:ok, _} -> {:ok, []}
       {:error, %Googly.Places.Error{} = error} ->
         {:error, {:upstream, error.status, error.message || "upstream error"}}
       {:error, _exception} ->
