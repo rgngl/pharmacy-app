@@ -1,7 +1,7 @@
 defmodule PharmacyAppWeb.Endpoint do
   use Phoenix.Endpoint, otp_app: :pharmacy_app
 
-  # JSON API only: no static assets, no session, no HTML rendering.
+  # No static assets, no session; error pages render via ErrorHTML.
   plug Plug.RequestId
   plug Plug.Logger
 
