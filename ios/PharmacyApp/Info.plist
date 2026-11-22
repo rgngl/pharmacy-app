@@ -20,8 +20,12 @@
 	<string>1.0</string>
 	<key>CFBundleVersion</key>
 	<string>1</string>
-	<!-- Dev against the local Phoenix server: plain-HTTP localhost is allowed.
-	     Remove before shipping or point the app at an HTTPS host. -->
+	<!-- Server base URL, injected from the PHARMACY_BASE_URL build setting
+	     (Debug: http://localhost:4000, Release: https://pharmacy-app.fly.dev). -->
+	<key>PharmacyBaseURL</key>
+	<string>$(PHARMACY_BASE_URL)</string>
+	<!-- Plain-HTTP localhost (the Debug PHARMACY_BASE_URL) needs this
+	     exception; the Release HTTPS host is unaffected by it. -->
 	<key>NSAppTransportSecurity</key>
 	<dict>
 		<key>NSAllowsLocalNetworking</key>

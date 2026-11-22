@@ -1,9 +1,19 @@
 import Foundation
 
+/// Build-time server configuration. The base URL is baked into the bundle
+/// by the `PHARMACY_BASE_URL` build setting (Info.plist `PharmacyBaseURL`):
+///
+/// - Debug builds:  `http://localhost:4000` (the local Phoenix server)
+/// - Release builds: `https://pharmacy-app.fly.dev`
+///
+/// To repoint a build, change `PHARMACY_BASE_URL` in the target's build
+/// configuration — no code change, no runtime override.
 enum AppConfig {
-    /// Phoenix server serving `GET /api/pharmacies`. The simulator can reach
-    /// the host's localhost directly; on a physical device replace this with
-    /// your Mac's LAN address (e.g. `http://192.168.1.10:4000`) or an
-    /// HTTPS deployment URL.
-    static let baseURL = URL(string: "http://localhost:4000")!
+    static let baseURL: URL = {
+        let raw = Bundle.main.object(forInfoDictionaryKey: "PharmacyBaseURL") as? String ?? ""
+        guard let url = URL(string: raw), url.scheme == "http" || url.scheme == "https" else {
+            preconditionFailure("PHARMACY_BASE_URL must be a valid http(s) URL, got '\(raw)'")
+        }
+        return url
+    }()
 }

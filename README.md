@@ -36,10 +36,12 @@ cd backend && GOOGLE_MAPS_API_KEY=your-key mix phx.server   # :4000
 open ios/PharmacyApp.xcodeproj
 ```
 
-- `ios/PharmacyApp/AppConfig.swift` holds the base URL: `http://localhost:4000`
-  works in the iOS Simulator (ATS local networking is allowed in
-  `Info.plist`); on a device point it at your Mac's LAN address or an
-  HTTPS deployment.
+- Server base URL is a build setting: `PHARMACY_BASE_URL` in the project
+  (Debug: `http://localhost:4000`, Release: `https://pharmacy-app.fly.dev`),
+  injected into the bundle's `PharmacyBaseURL` and read by
+  `AppConfig.swift`. Repoint a build there; no code change. Plain-HTTP
+  targets must be localhost or the local network (ATS); everything else
+  should be HTTPS.
 - The app needs a location permission prompt the first time "Use my
   location" is used; the Simulator's Features ▸ Location menu can simulate
   a fix.
