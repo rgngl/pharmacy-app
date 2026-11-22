@@ -58,7 +58,7 @@ Responses:
 - `404` — `q` given but Google returned no matching address.
 - `4xx` / `502` — upstream (Google) error, mirrored or mapped by the controller.
 
-Results are cached for 60 s on a ~100 m location grid; geocode results are cached for 60 s per normalized address and language.
+Only geocode results are cached: 60 s per normalized address (trimmed, lowercased, whitespace-collapsed) and language. Nearby search results are never cached — distance, filtering, and sorting are origin-dependent, and each query already runs with that request's exact origin and radius.
 
 ### Rate limiting
 
@@ -71,7 +71,7 @@ Limits are configured under `:pharmacy_app, :rate_limit` (`:limit`, `:global_lim
 Two layers, both independent of the rate limiter:
 
 - **Cloud Console quotas**: cap the Places API key's daily request quota and restrict the key (server IP or referrer) in Google Cloud Console. With a cap, sustained abuse ends in Google `429`s instead of billing.
-- **60 s result caches** (above) absorb repeated identical searches.
+- **60 s geocode cache** (above) absorbs repeated address searches; repeated identical coordinate searches still bill.
 
 ## Web UI
 
@@ -98,8 +98,8 @@ Tests are fully offline: the service layer uses an injected fake Places client, 
 lib/pharmacy_app/
   pharmacies/pharmacy.ex         # pure domain: validation, haversine, Google model → app struct
   pharmacies/places_adapter.ex   # only module that touches Googly.Places.* (API key, error translation)
-  pharmacies/service.ex          # orchestration: validate → cache → client → map/filter/sort
-  pharmacies/cache.ex            # ETS + GenServer TTL cache (60 s, ~100 m grid)
+  pharmacies/service.ex          # orchestration: validate → (cached) geocode → client → map/filter/sort
+  pharmacies/cache.ex            # ETS + GenServer TTL cache: geocode results only (60 s)
   application.ex                 # supervisor: Cache + RateLimit sweeper + Endpoint
 lib/pharmacy_app_web/
   endpoint.ex, router.ex         # GET /api/pharmacies
