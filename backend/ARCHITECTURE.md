@@ -4,8 +4,9 @@ Elixir/Phoenix service that finds pharmacies near a user's location using the **
 
 - **Runtime**: Elixir 1.20.5 / Erlang OTP 29 (pinned in `.tool-versions`, managed with asdf)
 - **HTTP server**: Bandit (`Bandit.PhoenixAdapter`)
-- **Places client**: vendored, generated [`googly_places`](vendor/googly_places) (path dep; Req + Jason underneath — do not edit)
+- **Places client**: vendored, generated [`googly_places`](vendor/googly_places) (path dep; Req ~> 0.6 + Jason underneath — do not edit)
 - **State**: two public ETS tables (geocode cache, rate-limit counters) owned by supervised GenServers
+- **Absences by design**: no Ecto/Repo, no PubSub/channels, no job scheduler (Oban/Broadway), no CI — persistence-free request/response service with only periodic ETS sweeps as background work
 
 ## Layering
 
@@ -161,7 +162,10 @@ Each adapter call emits `[:pharmacy_app, :places, :request, :start | :stop | :ex
 
 ## Deployment
 
+Live at `https://pharmacy-app.fly.dev` (noted in the root `README.md`).
+
 - **Docker**: two stages, **same base image** (`hexpm/elixir:1.20.5-erlang-29.1.2-...-slim`) for both, so the release's bundled ERTS matches the runtime libssl. Deps layer (manifest + lock + vendored client) cached separately from source. No API key is ever baked into the image — `runtime.exs` reads it at boot; supply via `-e` / compose `.env`.
+- **Release customization** (`rel/`): `env.sh.eex` exports Fly-specific distributed-Erlang env when `FLY_APP_NAME` is set (`DNS_CLUSTER_QUERY`, `RELEASE_NODE`, IPv6 `proto_dist`) — latent clustering for a future multi-machine setup; the current `fly.toml` runs a single `app` process. `rel/overlays/bin` ships the standard release `server` scripts.
 - **Runtime stage**: copies `_build/prod/rel/pharmacy_app` (self-contained release with bundled ERTS), non-root `phoenix` user, `HEALTHCHECK` curling `GET /` (local-only, never touches Google). Port fixed at 4000 (no `PORT` indirection).
 - **Fly.io** (`fly.toml`): region `arn`, `min_machines_running = 0` with auto stop/start, 512 MB / 1 CPU, connection hard/soft limit 1000, forced HTTPS. Fly's proxy sets `fly-client-ip`, which the rate limiter consumes.
 - **docker-compose** (repo root): single `backend` service, host port must stay `4000`, key injected via `${GOOGLE_MAPS_API_KEY}` from shell or root `.env`.
