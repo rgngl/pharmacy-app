@@ -62,7 +62,7 @@ Results are cached for 60 s on a ~100 m location grid; geocode results are cache
 
 ### Rate limiting
 
-`GET /api/pharmacies` is rate limited per client IP — 20 requests per 60 s window, then `429` with a `Retry-After` header until the window rolls over — and by a global ceiling of 300 requests per window across all IPs, so a coordinated flood from many rotating IPs still trips it. The `GET /` health check is exempt. The client IP is the `fly-client-ip` header set by the Fly proxy (not spoofable from outside Fly), with `x-forwarded-for` / socket address fallbacks for local development.
+`GET /api/pharmacies` is rate limited per client IP — 20 requests per 60 s window, then `429` with a `Retry-After` header until the window rolls over — and by a global ceiling of 300 requests per window across all IPs, so a coordinated flood from many rotating IPs still trips it. The same limits apply to the HTML page (`GET /`) whenever it carries search parameters (`?q=…` / `?lat=…`), because those trigger Google calls; only the bare `/` — what health checks curl — is exempt. The client IP is the `fly-client-ip` header set by the Fly proxy (not spoofable from outside Fly), with `x-forwarded-for` / socket address fallbacks for local development.
 
 Limits are configured under `:pharmacy_app, :rate_limit` (`:limit`, `:global_limit`, `:window_ms`); defaults live in `lib/pharmacy_app_web/rate_limit.ex`. The limiter fails open if its ETS table is missing, so a limiter outage never takes the API down.
 

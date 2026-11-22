@@ -8,6 +8,7 @@ defmodule PharmacyAppWeb.Router do
 
   pipeline :browser do
     plug :accepts, ["html"]
+    plug PharmacyAppWeb.RateLimit
   end
 
   scope "/", PharmacyAppWeb do

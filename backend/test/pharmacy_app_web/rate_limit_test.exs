@@ -17,7 +17,12 @@ defmodule PharmacyAppWeb.RateLimitTest do
     :ok = PharmacyAppWeb.RateLimit.Sweeper.ensure_table()
     :ets.delete_all_objects(@table)
 
-    on_exit(fn -> Application.delete_env(:pharmacy_app, :rate_limit) end)
+    on_exit(fn ->
+      Application.delete_env(:pharmacy_app, :rate_limit)
+      Application.delete_env(:pharmacy_app, :service_opts)
+      Application.delete_env(:pharmacy_app, :test_client_fn)
+      Application.delete_env(:pharmacy_app, :test_geocoder_fn)
+    end)
     :ok
   end
 
@@ -98,6 +103,22 @@ defmodule PharmacyAppWeb.RateLimitTest do
 
   test "health-check path is exempt" do
     for _ <- 1..10, do: assert(build_conn() |> get("/") |> Map.get(:status) == 200)
+  end
+
+  test "HTML searches with parameters are throttled" do
+    set_limit!(2)
+    set_client({:ok, []})
+    Application.put_env(:pharmacy_app, :test_geocoder_fn, fn _address, _opts ->
+      {:ok, %{lat: 52.52, lng: 13.405, formatted_address: "Alexanderplatz, Berlin"}}
+    end)
+    Application.put_env(:pharmacy_app, :service_opts,
+      Keyword.put(Application.get_env(:pharmacy_app, :service_opts, []), :geocoder,
+        PharmacyApp.TestClient
+      )
+    )
+
+    for _ <- 1..2, do: assert(build_conn() |> get("/", q: "Berlin") |> Map.get(:status) == 200)
+    assert build_conn() |> get("/", q: "Berlin") |> Map.get(:status) == 429
   end
 
   test "sweeper deletes expired windows and keeps the current one" do

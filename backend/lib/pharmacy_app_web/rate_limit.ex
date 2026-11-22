@@ -48,8 +48,10 @@ defmodule PharmacyAppWeb.RateLimit do
     end
   end
 
-  # The browser-scope health check is exempt so probes never consume quota.
-  defp limited_path?(conn), do: conn.request_path != "/"
+  # Only the bare "/" (no query string) is exempt, so health-check probes
+  # never consume quota. "/?q=…" and "/?lat=…" trigger Google calls through
+  # the page controller and count like any other API request.
+  defp limited_path?(conn), do: not (conn.request_path == "/" and conn.query_string == "")
 
   defp check(conn) do
     ip = ip_key(conn)
