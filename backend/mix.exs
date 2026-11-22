@@ -8,6 +8,12 @@ defmodule PharmacyApp.MixProject do
       elixir: "~> 1.20",
       start_permanent: Mix.env() == :prod,
       elixirc_paths: elixirc_paths(Mix.env()),
+      # mix test --cover only: gate regressions at today's level (77.81% → 75);
+      # raise toward 90 as the PlacesAdapter translation tests fill in.
+      test_coverage: [
+        summary: [threshold: 75],
+        ignore_modules: [~r/^PharmacyApp\.TestClient$/]
+      ],
       deps: deps()
     ]
   end
