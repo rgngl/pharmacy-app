@@ -3,6 +3,8 @@
 Finds the nearest pharmacies for a user's coordinates via the Google Places API.
 Monorepo: Elixir/Phoenix backend + iOS app.
 
+A running copy of the web app is available at https://pharmacy-app.fly.dev.
+
 ```
 backend/   Elixir/Phoenix API (see backend/README.md)
 ios/       iOS app (Xcode project)
