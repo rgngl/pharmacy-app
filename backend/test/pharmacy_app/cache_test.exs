@@ -4,12 +4,28 @@ defmodule PharmacyApp.Pharmacies.CacheTest do
   alias PharmacyApp.Pharmacies.Cache
 
   setup do
+    # A previous test may have deleted the table (rescue-branch tests). The
+    # sweeper then crashes on the missing table and the supervisor's
+    # restart recreates it via init/1; wait out that cycle before assuming
+    # a usable cache. (No-ops when the table is intact.)
+    wait_for_table(50)
+
     case GenServer.whereis(Cache) do
       nil -> start_supervised!(Cache)
       _pid -> :ok
     end
 
+    wait_for_table(50)
     :ok
+  end
+
+  defp wait_for_table(0), do: flunk(":pharmacy_cache table never came back")
+
+  defp wait_for_table(attempts) do
+    if :ets.whereis(:pharmacy_cache) == :undefined do
+      Process.sleep(10)
+      wait_for_table(attempts - 1)
+    end
   end
 
   test "put/get round trip" do
@@ -47,5 +63,20 @@ defmodule PharmacyApp.Pharmacies.CacheTest do
     assert Cache.get(fresh_key) == {:ok, :value}
     # physically removed from the table, not just read as a miss
     assert :ets.lookup(:pharmacy_cache, stale_key) == []
+  end
+
+  test "get/1 fails open (miss) when the table is gone" do
+    # The sweeper GenServer recreates the table on restart (supervised in
+    # the application tree), so the very next line must already observe the
+    # missing table.
+    :ets.delete(:pharmacy_cache)
+
+    assert Cache.get(Cache.geocode_key("gone")) == :miss
+  end
+
+  test "put/3 fails open (:ok) when the table is gone" do
+    :ets.delete(:pharmacy_cache)
+
+    assert Cache.put(Cache.geocode_key("gone"), :value) == :ok
   end
 end

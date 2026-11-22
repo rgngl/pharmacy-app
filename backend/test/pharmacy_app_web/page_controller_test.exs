@@ -148,6 +148,25 @@ defmodule PharmacyAppWeb.PageControllerTest do
     assert html_response(conn, 403) =~ "Upstream error (403): API key not valid"
   end
 
+  test "server-side upstream errors render a 502 banner" do
+    set_client({:error, {:upstream, 500, "boom"}})
+
+    conn = get(build_conn(), "/", lat: "52.52", lng: "13.405")
+
+    assert conn.status == 502
+    assert html_response(conn, 502) =~ "Upstream error (500): boom"
+  end
+
+  test "non-scalar input renders 200 with inline errors" do
+    conn = get(build_conn(), "/", lat: %{a: 1}, lng: "13.405")
+
+    assert conn.status == 200
+    html = html_response(conn, 200)
+    assert html =~ "lat must be a number between -90 and 90"
+    # Not treated as a search: no results section.
+    refute html =~ "Apotheke"
+  end
+
   test "upstream unavailable renders a 502 banner" do
     set_client({:error, :upstream_unavailable})
 

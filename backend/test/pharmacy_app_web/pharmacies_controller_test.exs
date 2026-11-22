@@ -131,6 +131,16 @@ defmodule PharmacyAppWeb.PharmaciesControllerTest do
              Jason.decode!(conn.resp_body)
   end
 
+  test "renders 502 for server-side upstream errors" do
+    set_client({:error, {:upstream, 500, "boom"}})
+    conn = get(build_conn(), "/api/pharmacies", lat: "60.1", lng: "25.1", radius_m: "1000")
+
+    assert conn.status == 502
+
+    assert %{"errors" => [%{"status" => 500, "message" => "boom"}]} =
+             Jason.decode!(conn.resp_body)
+  end
+
   test "renders 502 when upstream is unavailable" do
     set_client({:error, :upstream_unavailable})
     conn = get(build_conn(), "/api/pharmacies", lat: "60.1", lng: "25.1", radius_m: "1000")

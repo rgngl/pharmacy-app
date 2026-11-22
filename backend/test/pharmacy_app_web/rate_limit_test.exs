@@ -143,4 +143,37 @@ defmodule PharmacyAppWeb.RateLimitTest do
 
     assert get_as_ip("203.0.113.9").status == 200
   end
+
+  test "init/2 passes options through" do
+    assert PharmacyAppWeb.RateLimit.init(opts = [limit: 5]) == opts
+  end
+
+  test "x-forwarded-for: first entry wins as the client key" do
+    set_limit!(1)
+    set_client({:ok, []})
+
+    conn =
+      build_conn()
+      |> Plug.Conn.put_req_header("x-forwarded-for", "203.0.113.31 , 10.0.0.9")
+      |> get("/api/pharmacies", lat: "52.52", lng: "13.405", radius_m: "1000")
+
+    assert conn.status == 200
+
+    # Keyed by the trimmed first entry: the same IP via the trusted Fly
+    # header is now over the limit.
+    assert get_as_ip("203.0.113.31").status == 429
+    # A different IP is unaffected.
+    assert get_as_ip("203.0.113.32").status == 200
+  end
+
+  test "fails open when no client IP can be determined" do
+    # No proxy headers and a remote_ip that :inet.ntoa/1 cannot render:
+    # ip_key/1 rescues, returns nil, and the request is allowed through.
+    conn =
+      %{Plug.Test.conn(:get, "/api/pharmacies") | remote_ip: :bogus}
+      |> PharmacyAppWeb.RateLimit.call([])
+
+    refute conn.halted
+    refute conn.status
+  end
 end

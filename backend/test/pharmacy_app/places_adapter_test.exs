@@ -220,6 +220,10 @@ defmodule PharmacyApp.Pharmacies.PlacesAdapterTest do
       assert PlacesAdapter.put_walk(ph, empty_summary()) == ph
     end
 
+    test "a non-binary duration leaves walk_duration_s nil" do
+      assert PlacesAdapter.put_walk(pharmacy(), summary(10, nil)).walk_duration_s == nil
+    end
+
     test "nil pharmacy passes through" do
       assert PlacesAdapter.put_walk(nil, summary(10, "60s")) == nil
     end

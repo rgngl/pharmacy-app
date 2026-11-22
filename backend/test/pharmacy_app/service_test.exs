@@ -317,6 +317,19 @@ defmodule PharmacyApp.Pharmacies.ServiceTest do
     refute_received {:client_called, _, _, _, _}
   end
 
+  test "address search: client errors pass through unchanged" do
+    set_client_result({:error, :upstream_unavailable})
+
+    assert {:error, :upstream_unavailable} =
+             Service.search_by_address("Alexanderplatz, Berlin",
+               geocoder: FakeGeocoder,
+               client: client_stub(),
+               cache: FakeCache
+             )
+
+    assert_received {:client_called, 52.52, 13.405, 1000, nil}
+  end
+
   test "address search: invalid language fails validation without geocoding" do
     assert {:error, {:invalid_params, ["language_code must be a BCP-47 language tag"]}} =
              Service.search_by_address("x",

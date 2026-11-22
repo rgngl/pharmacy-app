@@ -46,10 +46,10 @@ defmodule PharmacyApp.Pharmacies.PlacesAdapter do
       case Googly.Places.Places.search_text(
              body: body,
              key: api_key,
-             req: [
-               headers: [{"x-goog-fieldmask", field_mask}],
-               receive_timeout: receive_timeout()
-             ]
+             req:
+               ([headers: [{"x-goog-fieldmask", field_mask}],
+                 receive_timeout: receive_timeout()] ++
+                  extra_req_opts())
            ) do
         {:ok, %{places: [place | _]}} ->
           lat = place.location && place.location.latitude
@@ -123,10 +123,10 @@ defmodule PharmacyApp.Pharmacies.PlacesAdapter do
       case Googly.Places.Places.search_nearby(
              body: body,
              key: api_key,
-             req: [
-               headers: [{"x-goog-fieldmask", field_mask}],
-               receive_timeout: receive_timeout()
-             ]
+             req:
+               ([headers: [{"x-goog-fieldmask", field_mask}],
+                 receive_timeout: receive_timeout()] ++
+                  extra_req_opts())
            ) do
         {:ok, response} ->
           {:ok,
@@ -275,6 +275,13 @@ defmodule PharmacyApp.Pharmacies.PlacesAdapter do
 
   defp receive_timeout do
     Application.get_env(:pharmacy_app, :places_receive_timeout, 5_000)
+  end
+
+  # Test seam: extra Req request opts (e.g. a fake `:adapter`) injected via
+  # `:pharmacy_app, :places_req_opts`. Empty in production, so requests go
+  # out unchanged through the default Finch transport.
+  defp extra_req_opts do
+    Application.get_env(:pharmacy_app, :places_req_opts, [])
   end
 
   # Wraps an upstream call in the request telemetry events. Stop/exception

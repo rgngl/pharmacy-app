@@ -46,6 +46,22 @@ defmodule PharmacyApp.PharmaciesTest do
       assert {:error, issues} = Pharmacies.validate_params(%{lat: "x", lng: "y"})
       assert length(issues) == 2
     end
+
+    test "missing lng is reported" do
+      assert {:error, issues} = Pharmacies.validate_params(%{lat: 52.52})
+      assert issues == ["lng is required"]
+    end
+
+    test "non-string language_code is rejected" do
+      assert {:error, issues} =
+               Pharmacies.validate_params(%{lat: 52.52, lng: 13.405, language_code: :en})
+
+      assert issues == ["language_code must be a string"]
+    end
+
+    test "non-map input is rejected wholesale" do
+      assert Pharmacies.validate_params("lat=52.52") == {:error, ["invalid parameters"]}
+    end
   end
 
   describe "validate_options/1" do
@@ -60,6 +76,10 @@ defmodule PharmacyApp.PharmaciesTest do
     test "rejects a bad language tag" do
       assert {:error, issues} = Pharmacies.validate_options(%{language_code: "not a tag!"})
       assert issues == ["language_code must be a BCP-47 language tag"]
+    end
+
+    test "non-map input is rejected wholesale" do
+      assert Pharmacies.validate_options([radius_m: 500]) == {:error, ["invalid parameters"]}
     end
   end
 
