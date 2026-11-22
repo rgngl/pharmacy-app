@@ -6,7 +6,7 @@ defmodule PharmacyAppWeb.ComponentsTest do
   alias PharmacyApp.Pharmacies.Pharmacy
   alias PharmacyAppWeb.Components
 
-  defp pharmacy(fields \\ []) do
+  defp pharmacy(fields) do
     struct!(
       %Pharmacy{
         id: "p",
