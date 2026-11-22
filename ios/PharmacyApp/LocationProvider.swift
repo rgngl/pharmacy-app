@@ -26,7 +26,10 @@ final class LocationProvider: NSObject, CLLocationManagerDelegate {
 
     func currentLocation(timeout: TimeInterval = 10) async throws -> CLLocation {
         guard continuation == nil else { throw LocationError.failed }
-        guard CLLocationManager.locationServicesEnabled() else { throw LocationError.unavailable }
+
+        // Note: don't call CLLocationManager.locationServicesEnabled() here — it's a
+        // synchronous IPC call that can block the main thread (see the console warning).
+        // Services-disabled surfaces through didFailWithError below instead.
 
         requested = false
         return try await withCheckedThrowingContinuation { continuation in
