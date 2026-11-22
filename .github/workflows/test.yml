@@ -1,0 +1,62 @@
+name: test
+
+on:
+  push:
+  pull_request:
+
+defaults:
+  run:
+    working-directory: backend
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # Versions pinned in backend/.tool-versions (erlang 29.1.2 / elixir 1.20.5-otp-29).
+      - uses: erlef/setup-beam@v1
+        with:
+          otp-version: '29.1.2'
+          elixir-version: '1.20.5-otp-29'
+
+      - uses: actions/cache@v4
+        with:
+          path: |
+            backend/deps
+            backend/_build
+          key: mix-${{ runner.os }}-otp-29.1.2-elixir-1.20.5-${{ hashFiles('backend/mix.lock') }}
+          restore-keys: mix-${{ runner.os }}-otp-29.1.2-elixir-1.20.5-
+
+      - run: mix deps.get
+
+      # Cache may restore only deps; compile what is missing.
+      - run: mix deps.compile
+
+      # Fully offline (test env: fake clients, no Google calls). mix test --cover
+      # exits nonzero below the 95% threshold configured in backend/mix.exs.
+      - name: Run tests with coverage
+        shell: bash
+        run: set -o pipefail && mix test --cover 2>&1 | tee coverage.log
+
+      - name: Coverage summary
+        if: always()
+        shell: bash
+        run: |
+          {
+            echo "## Coverage"
+            echo
+            echo '```'
+            grep -E '^\|' coverage.log || echo 'no coverage table'
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload coverage HTML
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-html
+          path: backend/cover/
+          retention-days: 14
