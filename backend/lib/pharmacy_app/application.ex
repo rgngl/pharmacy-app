@@ -7,6 +7,8 @@ defmodule PharmacyApp.Application do
   def start(_type, _args) do
     children = [
       PharmacyApp.Pharmacies.Cache,
+      # Rate-limit table must exist before the Endpoint serves requests.
+      PharmacyAppWeb.RateLimit.Sweeper,
       PharmacyAppWeb.Endpoint
     ]
 

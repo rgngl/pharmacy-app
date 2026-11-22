@@ -3,6 +3,7 @@ defmodule PharmacyAppWeb.Router do
 
   pipeline :api do
     plug :accepts, ["json"]
+    plug PharmacyAppWeb.RateLimit
   end
 
   pipeline :browser do

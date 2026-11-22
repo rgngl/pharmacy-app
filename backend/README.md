@@ -60,6 +60,19 @@ Responses:
 
 Results are cached for 60 s on a ~100 m location grid; geocode results are cached for 60 s per normalized address and language.
 
+### Rate limiting
+
+`GET /api/pharmacies` is rate limited per client IP — 20 requests per 60 s window, then `429` with a `Retry-After` header until the window rolls over — and by a global ceiling of 300 requests per window across all IPs, so a coordinated flood from many rotating IPs still trips it. The `GET /` health check is exempt. The client IP is the `fly-client-ip` header set by the Fly proxy (not spoofable from outside Fly), with `x-forwarded-for` / socket address fallbacks for local development.
+
+Limits are configured under `:pharmacy_app, :rate_limit` (`:limit`, `:global_limit`, `:window_ms`); defaults live in `lib/pharmacy_app_web/rate_limit.ex`. The limiter fails open if its ETS table is missing, so a limiter outage never takes the API down.
+
+### Google API spend protection
+
+Two layers, both independent of the rate limiter:
+
+- **Cloud Console quotas**: cap the Places API key's daily request quota and restrict the key (server IP or referrer) in Google Cloud Console. With a cap, sustained abuse ends in Google `429`s instead of billing.
+- **60 s result caches** (above) absorb repeated identical searches.
+
 ## Web UI
 
 A server-rendered page at `GET /` (HTML, no JS build step — the script is inline in the HEEx template, styles ship via the `<.stylesheet />` component) shows nearby pharmacies with distance, open-now status, and opening hours. Reusable pieces (cards, pills, chips, icons) live in `lib/pharmacy_app_web/components/components.ex` as `Phoenix.Component` function components.
@@ -87,9 +100,10 @@ lib/pharmacy_app/
   pharmacies/places_adapter.ex   # only module that touches Googly.Places.* (API key, error translation)
   pharmacies/service.ex          # orchestration: validate → cache → client → map/filter/sort
   pharmacies/cache.ex            # ETS + GenServer TTL cache (60 s, ~100 m grid)
-  application.ex                 # supervisor: Cache + Endpoint
+  application.ex                 # supervisor: Cache + RateLimit sweeper + Endpoint
 lib/pharmacy_app_web/
   endpoint.ex, router.ex         # GET /api/pharmacies
+  rate_limit.ex                  # per-IP fixed-window limiter (429 + Retry-After)
   controllers/pharmacies_controller.ex
 vendor/googly_places/            # generated Google Places client (do not edit)
 ```
